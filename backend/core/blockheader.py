@@ -1,62 +1,218 @@
-from util.util import hash256
+"""
+BlockHeader Module - Bitcoin Block Header Implementation
+
+Block header chứa metadata của block và là phần được hash để mining.
+Module này cung cấp class BlockHeader với chức năng:
+- Serialize header theo format Bitcoin
+- Mining (tìm nonce thỏa mãn difficulty)
+- Calculate block hash
+
+Cấu trúc Block Header (80 bytes):
+┌──────────────────────────────────────────┐
+│ Version (4 bytes)                        │
+├──────────────────────────────────────────┤
+│ Previous Block Hash (32 bytes)           │
+├──────────────────────────────────────────┤
+│ Merkle Root (32 bytes)                   │
+├──────────────────────────────────────────┤
+│ Timestamp (4 bytes)                      │
+├──────────────────────────────────────────┤
+│ Bits / Difficulty Target (4 bytes)       │
+├──────────────────────────────────────────┤
+│ Nonce (4 bytes)                          │
+└──────────────────────────────────────────┘
+"""
 import time
+import logging
+from typing import Optional
+
+from util.util import hash256
+
+
+# =============================================================================
+# LOGGING SETUP
+# =============================================================================
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+
+# Default difficulty (dễ, cho testing)
+DEFAULT_BITS = '1d00ffff'
+
+# Mining progress report interval
+MINING_REPORT_INTERVAL = 100000  # Báo cáo mỗi 100k hashes
+
+
+# =============================================================================
+# BLOCKHEADER CLASS
+# =============================================================================
 
 class BlockHeader:
-    """Represents a block header in the blockchain."""
+    """
+    Bitcoin Block Header - Metadata và proof-of-work của block.
     
-    def __init__(self, version, previous_block_hash, merkle_root, timestamp=None, bits=None):
+    Block header là phần quan trọng nhất của block:
+    - Chứa hash của block trước (tạo chain)
+    - Chứa merkle root (commit tất cả transactions)
+    - Chứa nonce (proof-of-work)
+    
+    Mining Process:
+    1. Serialize header với nonce = 0
+    2. Hash bằng double SHA-256
+    3. Nếu hash < target: thành công!
+    4. Nếu không: tăng nonce và lặp lại
+    
+    Attributes:
+        version: Block version (1 hoặc 2)
+        previous_block_hash: Hash của block trước (64 hex chars)
+        merkle_root: Merkle root của transactions (64 hex chars)
+        timestamp: Unix timestamp khi tạo block
+        bits: Difficulty target dạng compact (8 hex chars)
+        nonce: Giá trị tìm được khi mining (0 - 4,294,967,295)
+        block_hash: Hash của header sau khi mine xong
+    """
+    
+    __slots__ = [
+        'version', 'previous_block_hash', 'merkle_root',
+        'timestamp', 'bits', 'nonce', 'block_hash',
+        '_header_prefix'  # Cache cho mining optimization
+    ]
+    
+    def __init__(
+        self, 
+        version: int, 
+        previous_block_hash: str, 
+        merkle_root: str, 
+        timestamp: Optional[int] = None, 
+        bits: Optional[str] = None
+    ):
         """
-        Initialize a new block header.
+        Khởi tạo Block Header.
         
         Args:
-            version (int): Block version number
-            previous_block_hash (str): Hash of the previous block
-            merkle_root (str): Merkle root of transactions in the block
-            timestamp (int, optional): Block creation timestamp. Defaults to current time.
-            bits (str, optional): Difficulty target in compact format. Defaults to '1d00ffff'.
+            version: Block version number (thường là 1)
+            previous_block_hash: Hash của block trước (64 hex chars)
+            merkle_root: Merkle root của tất cả transactions
+            timestamp: Unix timestamp, mặc định là thời điểm hiện tại
+            bits: Difficulty target dạng compact, mặc định '1d00ffff'
         """
         self.version = version
         self.previous_block_hash = previous_block_hash
         self.merkle_root = merkle_root
         self.timestamp = timestamp or int(time.time())
-        self.bits = bits or '1d00ffff'  # Default difficulty target
+        self.bits = bits or DEFAULT_BITS
         self.nonce = 0
-        self.block_hash = None
+        self.block_hash: Optional[str] = None
+        
+        # Pre-compute header prefix (không đổi trong quá trình mining)
+        self._header_prefix: Optional[str] = None
     
-    def mine(self):
-        """Mine the block by finding a valid nonce that satisfies the difficulty target."""
-        print("Mining block...")
-        self.nonce = 0
+    # =========================================================================
+    # MINING METHODS
+    # =========================================================================
+    
+    def mine(self) -> str:
+        """
+        Mining block - Tìm nonce thỏa mãn difficulty target.
+        
+        Thuật toán:
+        1. Pre-compute phần header không đổi (optimization)
+        2. Thử từng nonce: 0, 1, 2, ...
+        3. Hash(header + nonce) < target → thành công
+        
+        Optimization:
+        - Pre-compute header prefix để tránh serialize lại mỗi iteration
+        - Chỉ thay đổi 4 bytes cuối (nonce)
+        
+        Returns:
+            str: Block hash khi mining thành công
+        """
+        logger.info("Starting block mining...")
+        start_time = time.time()
+        
+        # Pre-compute phần header không đổi
+        header_prefix = self._serialize_prefix()
         target = self.calculate_target()
         
+        self.nonce = 0
+        
         while True:
-            # Serialize block header with current nonce
-            header_hex = self.serialize()
+            # Append nonce vào header prefix (đã pre-compute)
+            nonce_hex = self.nonce.to_bytes(4, 'little').hex()
+            header_hex = header_prefix + nonce_hex
             
-            # Calculate double SHA-256 hash
+            # Double SHA-256
             hash_result = hash256(bytes.fromhex(header_hex)).hex()
             
-            # Check if hash meets the target difficulty
+            # Kiểm tra target
             if int(hash_result, 16) < target:
                 self.block_hash = hash_result
-                print(f"\nBlock mined! Hash: {self.block_hash}")
-                print(f"Nonce: {self.nonce}")
+                elapsed = time.time() - start_time
+                hashrate = self.nonce / elapsed if elapsed > 0 else 0
+                
+                logger.info(f"Block mined successfully!")
+                logger.info(f"  Hash: {self.block_hash}")
+                logger.info(f"  Nonce: {self.nonce}")
+                logger.info(f"  Time: {elapsed:.2f}s")
+                logger.info(f"  Hashrate: {hashrate:.0f} H/s")
+                
                 return self.block_hash
             
             self.nonce += 1
-            if self.nonce % 100000 == 0:  # Print progress every 100k hashes
-                print(f"Hashing... Nonce: {self.nonce}, Hash: {hash_result[:16]}...", end="\r")
+            
+            # Progress report
+            if self.nonce % MINING_REPORT_INTERVAL == 0:
+                print(f"Mining... Nonce: {self.nonce:,}, "
+                      f"Hash: {hash_result[:16]}...", end="\r")
     
-    def calculate_target(self):
-        """Calculate the target from bits."""
-        # This is a simplified version - in a real implementation, you'd need to handle
-        # the actual Bitcoin difficulty calculation
+    def calculate_target(self) -> int:
+        """
+        Chuyển đổi bits (compact format) thành target number.
+        
+        Bits format: 0x[exponent][coefficient]
+        Target = coefficient * 2^(8*(exponent-3))
+        
+        Ví dụ: bits = '1d00ffff'
+        - exponent = 0x1d = 29
+        - coefficient = 0x00ffff
+        - target = 0x00ffff * 2^(8*(29-3)) = 0x00ffff * 2^208
+        
+        Note: Phiên bản đơn giản, dùng target cố định cho testing.
+        
+        Returns:
+            int: Target number (hash phải nhỏ hơn số này)
+        """
+        # Simplified target for testing (dễ mine)
+        # Với target này, mỗi hash có khoảng 1/65536 cơ hội thành công
         return 0x0000ffff00000000000000000000000000000000000000000000000000000000
     
-    def serialize(self):
-        """Serialize the block header to a hexadecimal string."""
+    # =========================================================================
+    # SERIALIZATION METHODS
+    # =========================================================================
+    
+    def _serialize_prefix(self) -> str:
+        """
+        Serialize phần header KHÔNG bao gồm nonce.
+        
+        Dùng để optimization mining - chỉ compute 1 lần,
+        sau đó append nonce mỗi iteration.
+        
+        Format (76 bytes = 152 hex chars):
+        - Version: 4 bytes
+        - Previous block hash: 32 bytes
+        - Merkle root: 32 bytes
+        - Timestamp: 4 bytes
+        - Bits: 4 bytes
+        
+        Returns:
+            str: Header prefix dạng hex
+        """
         # Version (4 bytes, little-endian)
-        version = self.version.to_bytes(4, 'little').hex()
+        version_hex = self.version.to_bytes(4, 'little').hex()
         
         # Previous block hash (32 bytes, little-endian)
         prev_hash = bytes.fromhex(self.previous_block_hash)[::-1].hex()
@@ -65,19 +221,32 @@ class BlockHeader:
         merkle = bytes.fromhex(self.merkle_root)[::-1].hex()
         
         # Timestamp (4 bytes, little-endian)
-        timestamp = self.timestamp.to_bytes(4, 'little').hex()
+        timestamp_hex = self.timestamp.to_bytes(4, 'little').hex()
         
         # Bits (4 bytes, little-endian)
-        bits = bytes.fromhex(self.bits)[::-1].hex()
+        bits_hex = bytes.fromhex(self.bits)[::-1].hex()
         
-        # Nonce (4 bytes, little-endian)
-        nonce = self.nonce.to_bytes(4, 'little').hex()
-        
-        # Concatenate all fields
-        return version + prev_hash + merkle + timestamp + bits + nonce
+        return version_hex + prev_hash + merkle + timestamp_hex + bits_hex
     
-    def to_dict(self):
-        """Convert block header to dictionary for serialization."""
+    def serialize(self) -> str:
+        """
+        Serialize toàn bộ header bao gồm nonce.
+        
+        Tổng: 80 bytes = 160 hex chars
+        
+        Returns:
+            str: Full header dạng hex
+        """
+        header_prefix = self._serialize_prefix()
+        nonce_hex = self.nonce.to_bytes(4, 'little').hex()
+        return header_prefix + nonce_hex
+    
+    def to_dict(self) -> dict:
+        """
+        Chuyển đổi header thành dictionary.
+        
+        Dùng cho JSON serialization và lưu vào database.
+        """
         return {
             'version': self.version,
             'previous_block_hash': self.previous_block_hash,
@@ -85,5 +254,12 @@ class BlockHeader:
             'timestamp': self.timestamp,
             'bits': self.bits,
             'nonce': self.nonce,
-            'block_hash': self.block_hash
+            'blockhash': self.block_hash
         }
+    
+    def __repr__(self) -> str:
+        return (
+            f"BlockHeader(version={self.version}, "
+            f"prev_hash={self.previous_block_hash[:16]}..., "
+            f"nonce={self.nonce})"
+        )

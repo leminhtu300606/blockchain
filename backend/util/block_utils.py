@@ -1,99 +1,127 @@
 """
-Block utilities for creating and managing blocks with transactions.
-This module provides functionality to add transactions to blocks and manage the block creation process.
+Block Utilities Module - Tạo và quản lý Blocks
+
+Module này cung cấp các utility functions và classes để:
+- Tạo block mới với transactions
+- Tạo genesis block
+- Thêm transactions vào block
+
+Classes:
+- BlockBuilder: Builder pattern để tạo block step-by-step
+- BlockCreationError: Exception cho lỗi tạo block
+
+Functions:
+- create_genesis_block(): Tạo block đầu tiên
+- add_transactions_to_block(): Thêm txs vào block đã tồn tại
 """
-import hashlib
 import json
 import time
-import sys
-import os
+import logging
 from typing import List, Dict, Any, Optional, Tuple
-
-# Add the parent directory to the path to allow relative imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.block import Block
 from core.blockheader import BlockHeader
 from core.Tx import Tx, Script
 from core.mempool import mempool
 from .tx_utils import verify_transaction
+from .merkle import calculate_merkle_root  # Import từ merkle.py, không duplicate
 
-# Set up logging
-import logging
-logging.basicConfig(level=logging.INFO)
+
+# =============================================================================
+# LOGGING SETUP
+# =============================================================================
+
 logger = logging.getLogger(__name__)
 
+
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+
+ZERO_HASH = '0' * 64  # 32 bytes zeros
+DEFAULT_DIFFICULTY = '1d00ffff'
+DEFAULT_BLOCK_SIZE_LIMIT = 1_000_000  # 1 MB
+
+
+# =============================================================================
+# EXCEPTIONS
+# =============================================================================
+
 class BlockCreationError(Exception):
-    """Exception raised for errors during block creation."""
+    """Exception được raise khi có lỗi trong quá trình tạo block."""
     pass
 
-def calculate_merkle_root(tx_hashes: List[str]) -> str:
-    """
-    Calculate the Merkle root from a list of transaction hashes.
-    
-    Args:
-        tx_hashes: List of transaction hashes
-        
-    Returns:
-        str: The Merkle root as a hexadecimal string
-    """
-    if not tx_hashes:
-        return ""
-    
-    # Convert all hashes to bytes
-    hashes = [bytes.fromhex(tx_hash) for tx_hash in tx_hashes]
-    
-    while len(hashes) > 1:
-        # If the number of hashes is odd, duplicate the last one
-        if len(hashes) % 2 != 0:
-            hashes.append(hashes[-1])
-        
-        # Create a new level of the Merkle tree
-        new_hashes = []
-        for i in range(0, len(hashes), 2):
-            # Concatenate the two hashes and hash them
-            concat = hashes[i] + hashes[i+1]
-            new_hash = hashlib.sha256(hashlib.sha256(concat).digest()).digest()
-            new_hashes.append(new_hash)
-        
-        hashes = new_hashes
-    
-    return hashes[0].hex() if hashes else ""
+
+# =============================================================================
+# BLOCK BUILDER CLASS
+# =============================================================================
 
 class BlockBuilder:
     """
-    A class to help build and manage blocks with transactions.
+    Block Builder - Tạo block theo pattern Builder.
+    
+    Workflow sử dụng:
+    1. Khởi tạo với previous block hash
+    2. Set coinbase transaction (block reward)
+    3. Thêm các transactions từ mempool
+    4. Gọi create_block() để hoàn thành
+    
+    Example:
+        builder = BlockBuilder(previous_block_hash)
+        builder.set_coinbase_transaction(miner_address, reward, height)
+        builder.add_transaction(tx, utxo_set)
+        block = builder.create_block(height)
+    
+    Attributes:
+        transactions: Danh sách transactions đã thêm
+        previous_block_hash: Hash của block trước
+        difficulty_bits: Difficulty target
+        coinbase_tx: Coinbase transaction
+        version: Block version
     """
     
-    def __init__(self, previous_block_hash: str, difficulty_bits: str = '1d00ffff'):
+    def __init__(
+        self, 
+        previous_block_hash: str, 
+        difficulty_bits: str = DEFAULT_DIFFICULTY
+    ):
         """
-        Initialize the BlockBuilder.
+        Khởi tạo BlockBuilder.
         
         Args:
-            previous_block_hash: Hash of the previous block
-            difficulty_bits: Difficulty target in compact format
+            previous_block_hash: Hash của block trước (64 hex chars)
+            difficulty_bits: Difficulty target dạng compact
         """
         self.transactions: List[Tx] = []
         self.previous_block_hash = previous_block_hash
         self.difficulty_bits = difficulty_bits
-        self.coinbase_tx = None
+        self.coinbase_tx: Optional[Dict[str, Any]] = None
         self.version = 1
         
-    def set_coinbase_transaction(self, miner_address: str, reward: int, height: int) -> None:
+        logger.debug(f"BlockBuilder initialized with prev_hash: {previous_block_hash[:16]}...")
+    
+    def set_coinbase_transaction(
+        self, 
+        miner_address: str, 
+        reward: int, 
+        height: int
+    ) -> None:
         """
-        Create and set the coinbase transaction for the block.
+        Tạo và set coinbase transaction.
+        
+        Coinbase là transaction đặc biệt ở đầu mỗi block:
+        - Không có input thực
+        - Output chứa block reward + transaction fees
         
         Args:
-            miner_address: The address to receive the block reward
-            reward: The block reward amount in satoshis
-            height: The height of the block
+            miner_address: Địa chỉ nhận block reward
+            reward: Số satoshis (block reward + fees)
+            height: Block height (dùng trong scriptSig)
         """
-        # In a real implementation, you would create a proper coinbase transaction
-        # For now, we'll create a simplified version
         self.coinbase_tx = {
-            'txid': '0' * 64,  # Placeholder for coinbase txid
+            'txid': ZERO_HASH,  # Coinbase txid sẽ được tính sau
             'vin': [{
-                'coinbase': f'03{height:08x}',  # Height in hex
+                'coinbase': f'03{height:08x}',  # Height theo BIP34
                 'sequence': 0xffffffff
             }],
             'vout': [{
@@ -101,61 +129,84 @@ class BlockBuilder:
                 'scriptPubKey': {
                     'address': miner_address,
                     'asm': f'OP_DUP OP_HASH160 {miner_address} OP_EQUALVERIFY OP_CHECKSIG',
-                    'hex': '76a914' + '00' * 20 + '88ac',  # Simplified script
+                    'hex': '76a914' + '00' * 20 + '88ac',
                     'type': 'pubkeyhash'
                 }
             }],
             'version': 1,
             'locktime': 0
         }
+        
+        logger.info(f"Coinbase set: reward={reward} satoshis, height={height}")
     
-    def add_transaction(self, tx: Tx, utxo_set: Dict[str, Dict[int, Dict[str, Any]]]) -> bool:
+    def add_transaction(
+        self, 
+        tx: Tx, 
+        utxo_set: Dict[str, Dict[int, Dict[str, Any]]]
+    ) -> bool:
         """
-        Add a transaction to the block if it's valid.
+        Thêm transaction vào block (nếu hợp lệ).
+        
+        Validation:
+        1. Verify transaction (signature, inputs, outputs)
+        2. Kiểm tra duplicate
         
         Args:
-            tx: The transaction to add
-            utxo_set: The current UTXO set
+            tx: Transaction cần thêm
+            utxo_set: UTXO set hiện tại để verify
             
         Returns:
-            bool: True if the transaction was added, False otherwise
+            bool: True nếu thêm thành công
         """
-        # Verify the transaction
+        txid = tx.id()
+        
+        # Verify transaction
         if not verify_transaction(tx, utxo_set):
-            logger.warning(f"Invalid transaction {tx.id()}, not adding to block")
+            logger.warning(f"Invalid transaction: {txid[:16]}...")
             return False
         
-        # Check for duplicate transactions
-        if any(t.id() == tx.id() for t in self.transactions):
-            logger.warning(f"Duplicate transaction {tx.id()}, not adding to block")
-            return False
+        # Check duplicate
+        for existing_tx in self.transactions:
+            if existing_tx.id() == txid:
+                logger.warning(f"Duplicate transaction: {txid[:16]}...")
+                return False
         
-        # Add the transaction
+        # Add transaction
         self.transactions.append(tx)
-        logger.info(f"Added transaction {tx.id()} to block")
+        logger.debug(f"Added transaction: {txid[:16]}...")
         return True
     
     def create_block(self, height: int) -> Block:
         """
-        Create a new block with the current transactions.
+        Tạo block hoàn chỉnh với tất cả transactions.
+        
+        Steps:
+        1. Verify coinbase đã được set
+        2. Thu thập tất cả tx hashes
+        3. Tính Merkle root
+        4. Tạo block header
+        5. Tạo Block object
         
         Args:
-            height: The height of the new block
+            height: Block height
             
         Returns:
-            Block: The newly created block
+            Block: Block object hoàn chỉnh
+            
+        Raises:
+            BlockCreationError: Nếu coinbase chưa được set
         """
         if not self.coinbase_tx:
             raise BlockCreationError("Coinbase transaction not set")
         
-        # Get transaction hashes (starting with coinbase)
-        tx_hashes = [self.coinbase_tx['txid']]  # Coinbase txid is all zeros
+        # Thu thập tx hashes (coinbase first)
+        tx_hashes = [self.coinbase_tx['txid']]
         tx_hashes.extend(tx.id() for tx in self.transactions)
         
-        # Calculate Merkle root
+        # Tính Merkle root
         merkle_root = calculate_merkle_root(tx_hashes)
         
-        # Create block header
+        # Tạo block header
         header = BlockHeader(
             version=self.version,
             previous_block_hash=self.previous_block_hash,
@@ -163,103 +214,156 @@ class BlockBuilder:
             bits=self.difficulty_bits
         )
         
-        # Create block with transactions (coinbase first)
-        all_transactions = [self.coinbase_tx] + [tx.to_dict() for tx in self.transactions]
+        # Prepare all transactions
+        all_txs = [self.coinbase_tx] + [tx.to_dict() for tx in self.transactions]
         
-        # Calculate block size (simplified)
-        block_size = len(json.dumps(all_transactions, default=str).encode('utf-8'))
+        # Tính block size
+        block_size = len(json.dumps(all_txs, default=str).encode('utf-8'))
         
-        # Create and return the block
+        logger.info(f"Created block: height={height}, txs={len(all_txs)}, size={block_size}")
+        
         return Block(
             Height=height,
             Blocksize=block_size,
             Blockheader=header,
-            Txcount=len(all_transactions),
-            Txs=all_transactions
+            Txcount=len(all_txs),
+            Txs=all_txs
         )
 
-def create_genesis_block(coinbase_tx: Dict, timestamp: int = None) -> Block:
+
+# =============================================================================
+# GENESIS BLOCK CREATION
+# =============================================================================
+
+def create_genesis_block(
+    coinbase_tx: Dict[str, Any], 
+    timestamp: Optional[int] = None
+) -> Block:
     """
-    Create the genesis (first) block.
+    Tạo Genesis Block (block đầu tiên).
+    
+    Genesis block có đặc điểm:
+    - Height = 0
+    - Previous block hash = zeros
+    - Chỉ chứa coinbase transaction
     
     Args:
-        coinbase_tx: The coinbase transaction for the genesis block
-        timestamp: Optional timestamp (defaults to current time)
+        coinbase_tx: Coinbase transaction dict
+        timestamp: Unix timestamp, mặc định là now
         
     Returns:
-        Block: The genesis block
+        Block: Genesis block
     """
-    # Create a block with no previous hash
+    # Genesis block header
     header = BlockHeader(
         version=1,
-        previous_block_hash='0' * 64,  # All zeros for genesis block
-        merkle_root=coinbase_tx['txid'],  # Only the coinbase transaction
+        previous_block_hash=ZERO_HASH,
+        merkle_root=coinbase_tx.get('txid', ZERO_HASH),
         timestamp=timestamp or int(time.time()),
-        bits='1d00ffff'  # Default difficulty
+        bits=DEFAULT_DIFFICULTY
     )
     
-    # Create the genesis block
+    # Tính block size
+    block_size = len(json.dumps([coinbase_tx], default=str))
+    
+    logger.info("Genesis block created")
+    
     return Block(
         Height=0,
-        Blocksize=len(json.dumps([coinbase_tx])),
+        Blocksize=block_size,
         Blockheader=header,
-        Txcount=1,  # Only the coinbase transaction
+        Txcount=1,
         Txs=[coinbase_tx]
     )
 
-def add_transactions_to_block(block: Block, transactions: List[Tx], utxo_set: Dict) -> Tuple[Block, List[Tx]]:
+
+# =============================================================================
+# TRANSACTION ADDITION
+# =============================================================================
+
+def add_transactions_to_block(
+    block: Block, 
+    transactions: List[Tx], 
+    utxo_set: Dict[str, Dict[int, Dict[str, Any]]]
+) -> Tuple[Block, List[Tx]]:
     """
-    Add valid transactions to a block and return the updated block and list of added transactions.
+    Thêm transactions vào block đã tồn tại.
+    
+    Lưu ý: Function này modify block in-place VÀ utxo_set.
     
     Args:
-        block: The block to add transactions to
-        transactions: List of transactions to add
-        utxo_set: Current UTXO set for validation
+        block: Block cần thêm transactions
+        transactions: Danh sách transactions
+        utxo_set: UTXO set (sẽ được cập nhật)
         
     Returns:
-        Tuple[Block, List[Tx]]: Updated block and list of added transactions
+        Tuple[Block, List[Tx]]: Block đã update và list các tx đã thêm
     """
-    added_txs = []
+    added_txs: List[Tx] = []
     
     for tx in transactions:
         try:
-            # Skip if block is getting too big (simplified check)
-            if block.Blocksize > 1000000:  # 1MB block size limit (adjust as needed)
-                logger.warning("Block size limit reached, stopping transaction addition")
+            # Kiểm tra block size limit
+            if block.Blocksize > DEFAULT_BLOCK_SIZE_LIMIT:
+                logger.warning("Block size limit reached")
                 break
-                
-            # Verify and add the transaction
-            if verify_transaction(tx, utxo_set):
-                # Add to block (simplified - in a real implementation, you'd update the merkle tree)
-                block.Txs.append(tx.to_dict())
-                block.Txcount += 1
-                block.Blocksize += len(str(tx.to_dict()))  # Simplified size calculation
-                added_txs.append(tx)
-                
-                # Update UTXO set (in a real implementation, you'd do this after block confirmation)
-                # This is a simplified version
-                for tx_in in tx.tx_ins:
-                    if tx_in.prev_tx in utxo_set and tx_in.prev_index in utxo_set[tx_in.prev_tx]:
-                        del utxo_set[tx_in.prev_tx][tx_in.prev_index]
-                
-                # Add new outputs to UTXO set
-                tx_id = tx.id()
-                utxo_set[tx_id] = {}
-                for i, tx_out in enumerate(tx.tx_outs):
-                    utxo_set[tx_id][i] = {
-                        'amount': tx_out.amount,
-                        'script_pubkey': tx_out.script_pubkey
-                    }
-                
-                logger.info(f"Added transaction {tx_id} to block")
+            
+            # Verify và thêm transaction
+            if not verify_transaction(tx, utxo_set):
+                continue
+            
+            # Thêm vào block
+            block.Txs.append(tx.to_dict())
+            block.Txcount += 1
+            block.Blocksize += len(json.dumps(tx.to_dict(), default=str))
+            added_txs.append(tx)
+            
+            # Cập nhật UTXO set
+            _update_utxo_set(tx, utxo_set)
+            
+            logger.debug(f"Added tx {tx.id()[:16]}... to block")
             
         except Exception as e:
-            logger.error(f"Error adding transaction to block: {e}")
+            logger.error(f"Error adding transaction: {e}")
             continue
     
-    # Update the Merkle root if any transactions were added
+    # Cập nhật Merkle root nếu có transactions mới
     if added_txs:
-        tx_hashes = [tx['txid'] if isinstance(tx, dict) else tx.id() for tx in block.Txs]
+        tx_hashes = []
+        for tx_data in block.Txs:
+            if isinstance(tx_data, dict):
+                tx_hashes.append(tx_data.get('txid', ZERO_HASH))
+            else:
+                tx_hashes.append(tx_data.id())
+        
         block.Blockheader.merkle_root = calculate_merkle_root(tx_hashes)
     
+    logger.info(f"Added {len(added_txs)} transactions to block")
     return block, added_txs
+
+
+def _update_utxo_set(
+    tx: Tx, 
+    utxo_set: Dict[str, Dict[int, Dict[str, Any]]]
+) -> None:
+    """
+    Cập nhật UTXO set sau khi thêm transaction.
+    
+    Actions:
+    1. Xóa các outputs đã bị spend (inputs của tx)
+    2. Thêm các outputs mới của tx
+    """
+    txid = tx.id()
+    
+    # Xóa spent outputs
+    for tx_in in tx.tx_ins:
+        if tx_in.prev_tx in utxo_set:
+            utxo_set[tx_in.prev_tx].pop(tx_in.prev_index, None)
+    
+    # Thêm new outputs
+    utxo_set[txid] = {}
+    for i, tx_out in enumerate(tx.tx_outs):
+        utxo_set[txid][i] = {
+            'amount': tx_out.amount,
+            'script_pubkey': tx_out.script_pubkey
+        }

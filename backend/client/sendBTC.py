@@ -1,27 +1,98 @@
+"""
+Send BTC Module - Tạo và gửi Bitcoin Transaction
+
+Module này cung cấp các class và functions để:
+- Tạo transaction từ UTXOs
+- Ký transaction với private key
+- Gửi transaction đến network
+
+Classes:
+- UTXO: Đại diện cho Unspent Transaction Output
+- TxInput: Transaction input
+- TxOutput: Transaction output
+- Transaction: Complete transaction với signing
+
+Functions:
+- create_transaction(): Tạo và ký transaction
+- send_transaction(): Gửi transaction đến node
+"""
 import hashlib
-import json
-import time
-from typing import List, Dict, Optional, Tuple
-from dataclasses import dataclass, field
+import binascii
+import logging
+from typing import List, Dict, Optional
+from dataclasses import dataclass
+
 from ecdsa import SigningKey, SECP256k1
 from ecdsa.util import sigencode_der
-import binascii
 
-# Constants
-DEFAULT_FEE = 1000  # 1000 satoshis as default fee
-DEFAULT_SEQUENCE = 0xffffffff
-SIGHASH_ALL = 1
+
+# =============================================================================
+# LOGGING SETUP
+# =============================================================================
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+
+DEFAULT_FEE = 1000              # 1000 satoshis default fee
+DEFAULT_SEQUENCE = 0xffffffff   # Sequence number (không có RBF)
+SIGHASH_ALL = 1                 # Signature hash type
+
+
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
+
+def encode_varint(n: int) -> bytes:
+    """
+    Mã hóa số nguyên thành Variable Length Integer.
+    
+    Format Bitcoin VarInt:
+    - 0-252: 1 byte
+    - 253-65535: 0xfd + 2 bytes
+    - 65536-4294967295: 0xfe + 4 bytes
+    - Lớn hơn: 0xff + 8 bytes
+    """
+    if n < 0xfd:
+        return n.to_bytes(1, 'little')
+    elif n <= 0xffff:
+        return b'\xfd' + n.to_bytes(2, 'little')
+    elif n <= 0xffffffff:
+        return b'\xfe' + n.to_bytes(4, 'little')
+    else:
+        return b'\xff' + n.to_bytes(8, 'little')
+
+
+# =============================================================================
+# DATA CLASSES
+# =============================================================================
 
 @dataclass
 class UTXO:
-    """Unspent Transaction Output"""
-    txid: str           # Transaction ID where this UTXO was created
-    vout: int           # Output index in the transaction
-    amount: int         # Amount in satoshis
-    script_pubkey: str  # Locking script in hex
-    address: str        # Address that can spend this UTXO
+    """
+    Unspent Transaction Output - Output chưa được chi tiêu.
+    
+    UTXO là "tiền" bạn có thể spend trong Bitcoin.
+    Mỗi UTXO được định danh bởi (txid, vout).
+    
+    Attributes:
+        txid: Transaction ID nơi UTXO được tạo
+        vout: Output index trong transaction
+        amount: Số satoshis
+        script_pubkey: Locking script (hex)
+        address: Địa chỉ sở hữu UTXO
+    """
+    txid: str
+    vout: int
+    amount: int
+    script_pubkey: str
+    address: str
     
     def to_dict(self) -> dict:
+        """Convert to dictionary."""
         return {
             'txid': self.txid,
             'vout': self.vout,
@@ -30,15 +101,25 @@ class UTXO:
             'address': self.address
         }
 
+
 @dataclass
 class TxInput:
-    """Transaction Input"""
-    txid: str           # Previous transaction ID
-    vout: int           # Previous output index
-    script_sig: str = ""  # Script that solves the scriptPubKey
+    """
+    Transaction Input - Tham chiếu đến UTXO được spend.
+    
+    Attributes:
+        txid: Previous transaction ID
+        vout: Previous output index
+        script_sig: Unlocking script (signature + pubkey)
+        sequence: Sequence number (cho RBF, timelocks)
+    """
+    txid: str
+    vout: int
+    script_sig: str = ""
     sequence: int = DEFAULT_SEQUENCE
     
     def to_dict(self) -> dict:
+        """Convert to dictionary."""
         return {
             'txid': self.txid,
             'vout': self.vout,
@@ -46,124 +127,211 @@ class TxInput:
             'sequence': self.sequence
         }
 
+
 @dataclass
 class TxOutput:
-    """Transaction Output"""
-    address: str  # Recipient address
-    amount: int   # Amount in satoshis
+    """
+    Transaction Output - Định nghĩa recipient và amount.
+    
+    Attributes:
+        address: Địa chỉ nhận (sẽ được convert thành script)
+        amount: Số satoshis
+    """
+    address: str
+    amount: int
     
     def to_dict(self) -> dict:
+        """Convert to dictionary."""
         return {
             'address': self.address,
             'amount': self.amount
         }
 
+
+# =============================================================================
+# TRANSACTION CLASS
+# =============================================================================
+
 class Transaction:
-    """Bitcoin Transaction"""
+    """
+    Bitcoin Transaction - Hoàn chỉnh với signing.
+    
+    Workflow:
+    1. Tạo Transaction()
+    2. add_input() cho mỗi UTXO
+    3. add_output() cho mỗi recipient
+    4. sign_input() cho mỗi input
+    5. to_hex() để broadcast
+    
+    Attributes:
+        version: Transaction version (1 hoặc 2)
+        inputs: List of TxInput
+        outputs: List of TxOutput
+        locktime: Thời điểm sớm nhất có thể confirm
+        txid: Transaction ID (sau khi serialize)
+    """
+    
     def __init__(self, version: int = 1, locktime: int = 0):
+        """
+        Khởi tạo Transaction.
+        
+        Args:
+            version: Transaction version (default: 1)
+            locktime: Block height hoặc timestamp (default: 0)
+        """
         self.version = version
         self.inputs: List[TxInput] = []
         self.outputs: List[TxOutput] = []
         self.locktime = locktime
         self.txid: Optional[str] = None
-        self.hash: Optional[str] = None
+    
+    # =========================================================================
+    # INPUT/OUTPUT MANAGEMENT
+    # =========================================================================
     
     def add_input(self, tx_input: TxInput) -> None:
-        """Add an input to the transaction"""
+        """Thêm input vào transaction."""
         self.inputs.append(tx_input)
     
     def add_output(self, tx_output: TxOutput) -> None:
-        """Add an output to the transaction"""
+        """Thêm output vào transaction."""
         self.outputs.append(tx_output)
     
-    def sign_input(self, input_index: int, private_key: str, utxo_script_pubkey: str) -> str:
-        """Sign a transaction input with the provided private key"""
-        # Create a signature for the input at the given index
-        # This is a simplified version - in a real implementation, you'd need to handle SIGHASH flags properly
+    # =========================================================================
+    # SIGNING
+    # =========================================================================
+    
+    def sign_input(
+        self, 
+        input_index: int, 
+        private_key: str, 
+        utxo_script_pubkey: str
+    ) -> str:
+        """
+        Ký một input với private key.
         
-        # Get the private key in the right format
-        sk = SigningKey.from_string(bytes.fromhex(private_key), curve=SECP256k1)
+        Process:
+        1. Tạo bản sao transaction để ký
+        2. Thay scriptSig của input đang ký bằng scriptPubKey của UTXO
+        3. Hash transaction (double SHA-256)
+        4. Ký hash với ECDSA
+        5. Append SIGHASH_ALL byte
         
-        # Create the signature hash
-        sighash = self.calculate_signature_hash(input_index, utxo_script_pubkey)
+        Args:
+            input_index: Index của input cần ký
+            private_key: Private key (hex string)
+            utxo_script_pubkey: ScriptPubKey của UTXO được spend
+            
+        Returns:
+            str: Signature (DER format + SIGHASH byte) as hex
+        """
+        # Load private key
+        sk = SigningKey.from_string(
+            bytes.fromhex(private_key), 
+            curve=SECP256k1
+        )
         
-        # Sign the hash
+        # Tính signature hash
+        sighash = self._calculate_sighash(input_index, utxo_script_pubkey)
+        
+        # Ký deterministically
         signature = sk.sign_digest_deterministic(
             sighash,
             sigencode=sigencode_der,
             hashfunc=hashlib.sha256
         )
         
-        # Add the SIGHASH_ALL byte (0x01)
+        # Append SIGHASH_ALL
         signature += bytes([SIGHASH_ALL])
         
-        # Convert to hex
         return binascii.hexlify(signature).decode('ascii')
     
-    def calculate_signature_hash(self, input_index: int, script_pubkey_hex: str) -> bytes:
-        """Calculate the signature hash for a transaction input"""
-        # This is a simplified version - a full implementation would need to handle different SIGHASH types
+    def _calculate_sighash(
+        self, 
+        input_index: int, 
+        script_pubkey: str
+    ) -> bytes:
+        """
+        Tính hash để ký cho một input.
         
-        # Create a copy of the transaction with modified scripts
+        Simplified SIGHASH_ALL:
+        1. Copy transaction
+        2. Empty tất cả scriptSig
+        3. Put scriptPubKey vào input đang ký
+        4. Append SIGHASH type
+        5. Double SHA-256
+        """
+        # Tạo copy để ký
         tx_copy = Transaction(version=self.version, locktime=self.locktime)
         
-        # Copy inputs with empty scripts
-        for i, tx_in in enumerate(self.inputs):
-            script_sig = "" if i != input_index else script_pubkey_hex
+        for i, inp in enumerate(self.inputs):
+            # ScriptSig = scriptPubKey cho input đang ký, empty cho các input khác
+            script = script_pubkey if i == input_index else ""
             tx_copy.add_input(TxInput(
-                txid=tx_in.txid,
-                vout=tx_in.vout,
-                script_sig=script_sig,
-                sequence=tx_in.sequence
+                txid=inp.txid,
+                vout=inp.vout,
+                script_sig=script,
+                sequence=inp.sequence
             ))
         
-        # Copy outputs
-        for tx_out in self.outputs:
-            tx_copy.add_output(tx_out)
+        for out in self.outputs:
+            tx_copy.add_output(out)
         
-        # Serialize and hash the transaction
+        # Serialize + SIGHASH type
         serialized = tx_copy.serialize()
+        serialized += SIGHASH_ALL.to_bytes(4, 'little')
         
-        # Add SIGHASH_ALL
-        serialized += (SIGHASH_ALL).to_bytes(4, 'little')
-        
-        # Double SHA-256 hash
+        # Double SHA-256
         return hashlib.sha256(hashlib.sha256(serialized).digest()).digest()
     
+    # =========================================================================
+    # SERIALIZATION
+    # =========================================================================
+    
     def serialize(self) -> bytes:
-        """Serialize the transaction to bytes"""
+        """
+        Serialize transaction thành bytes.
+        
+        Format:
+        - Version (4 bytes)
+        - Input count (VarInt)
+        - Inputs
+        - Output count (VarInt)
+        - Outputs
+        - Locktime (4 bytes)
+        """
         result = bytearray()
         
         # Version
         result.extend(self.version.to_bytes(4, 'little'))
         
-        # Input count (varint)
-        result.extend(self._encode_varint(len(self.inputs)))
+        # Input count
+        result.extend(encode_varint(len(self.inputs)))
         
         # Inputs
-        for tx_in in self.inputs:
-            # Previous tx hash (little-endian)
-            result.extend(bytes.fromhex(tx_in.txid)[::-1])
+        for inp in self.inputs:
+            # Previous tx hash (reversed)
+            result.extend(bytes.fromhex(inp.txid)[::-1])
             # Previous output index
-            result.extend(tx_in.vout.to_bytes(4, 'little'))
-            # Script length and script
-            script_sig = bytes.fromhex(tx_in.script_sig) if tx_in.script_sig else b''
-            result.extend(self._encode_varint(len(script_sig)))
-            result.extend(script_sig)
+            result.extend(inp.vout.to_bytes(4, 'little'))
+            # ScriptSig
+            script = bytes.fromhex(inp.script_sig) if inp.script_sig else b''
+            result.extend(encode_varint(len(script)))
+            result.extend(script)
             # Sequence
-            result.extend(tx_in.sequence.to_bytes(4, 'little'))
+            result.extend(inp.sequence.to_bytes(4, 'little'))
         
-        # Output count (varint)
-        result.extend(self._encode_varint(len(self.outputs)))
+        # Output count
+        result.extend(encode_varint(len(self.outputs)))
         
         # Outputs
-        for tx_out in self.outputs:
-            # Amount in satoshis (8 bytes, little-endian)
-            result.extend(tx_out.amount.to_bytes(8, 'little'))
-            # Script length and script (simplified - in reality you'd create proper P2PKH/P2SH scripts)
-            script_pubkey = f"76a914{tx_out.address}88ac"  # P2PKH script
-            script_bytes = bytes.fromhex(script_pubkey)
-            result.extend(self._encode_varint(len(script_bytes)))
+        for out in self.outputs:
+            # Amount
+            result.extend(out.amount.to_bytes(8, 'little'))
+            # ScriptPubKey (simplified P2PKH)
+            script = f"76a914{out.address}88ac"
+            script_bytes = bytes.fromhex(script)
+            result.extend(encode_varint(len(script_bytes)))
             result.extend(script_bytes)
         
         # Locktime
@@ -172,37 +340,33 @@ class Transaction:
         return bytes(result)
     
     def calculate_fee(self, utxos: List[UTXO]) -> int:
-        """Calculate the transaction fee based on inputs and outputs"""
-        input_amount = sum(utxo.amount for utxo in utxos)
-        output_amount = sum(tx_out.amount for tx_out in self.outputs)
-        return input_amount - output_amount
+        """
+        Tính transaction fee.
+        
+        Fee = sum(inputs) - sum(outputs)
+        """
+        input_sum = sum(utxo.amount for utxo in utxos)
+        output_sum = sum(out.amount for out in self.outputs)
+        return input_sum - output_sum
     
     def to_dict(self) -> dict:
-        """Convert transaction to dictionary"""
+        """Convert to dictionary."""
         return {
             'txid': self.txid,
             'version': self.version,
-            'inputs': [tx_in.to_dict() for tx_in in self.inputs],
-            'outputs': [tx_out.to_dict() for tx_out in self.outputs],
+            'inputs': [inp.to_dict() for inp in self.inputs],
+            'outputs': [out.to_dict() for out in self.outputs],
             'locktime': self.locktime
         }
     
     def to_hex(self) -> str:
-        """Convert transaction to hex string"""
+        """Serialize thành hex string để broadcast."""
         return self.serialize().hex()
-    
-    @staticmethod
-    def _encode_varint(n: int) -> bytes:
-        """Encode an integer as a variable length integer (varint)"""
-        if n < 0xfd:
-            return n.to_bytes(1, 'little')
-        elif n <= 0xffff:
-            return b'\xfd' + n.to_bytes(2, 'little')
-        elif n <= 0xffffffff:
-            return b'\xfe' + n.to_bytes(4, 'little')
-        else:
-            return b'\xff' + n.to_bytes(8, 'little')
 
+
+# =============================================================================
+# TRANSACTION CREATION FUNCTIONS
+# =============================================================================
 
 def create_transaction(
     inputs: List[UTXO],
@@ -211,27 +375,29 @@ def create_transaction(
     fee: int = DEFAULT_FEE
 ) -> Transaction:
     """
-    Create a new transaction
+    Tạo và ký transaction.
+    
+    Workflow:
+    1. Tạo Transaction object
+    2. Thêm inputs từ UTXOs
+    3. Thêm outputs
+    4. Ký từng input
+    5. Tính TXID
     
     Args:
         inputs: List of UTXOs to spend
         outputs: List of outputs to create
-        private_key: Private key in hex format to sign the transaction
-        fee: Transaction fee in satoshis
+        private_key: Private key (hex) để ký
+        fee: Transaction fee (satoshis)
         
     Returns:
-        Signed transaction
+        Transaction: Signed transaction
     """
-    # Create a new transaction
     tx = Transaction()
     
     # Add inputs
     for utxo in inputs:
-        tx_input = TxInput(
-            txid=utxo.txid,
-            vout=utxo.vout
-        )
-        tx.add_input(tx_input)
+        tx.add_input(TxInput(txid=utxo.txid, vout=utxo.vout))
     
     # Add outputs
     for output in outputs:
@@ -239,38 +405,42 @@ def create_transaction(
     
     # Sign each input
     for i, utxo in enumerate(inputs):
-        # In a real implementation, you'd need to get the scriptPubKey for each UTXO
-        script_pubkey = utxo.script_pubkey
-        signature = tx.sign_input(i, private_key, script_pubkey)
-        
-        # Create scriptSig (simplified - in reality this would be a proper script)
+        signature = tx.sign_input(i, private_key, utxo.script_pubkey)
         tx.inputs[i].script_sig = signature
     
-    # Calculate and set txid
-    tx_hex = tx.serialize().hex()
-    tx.txid = hashlib.sha256(hashlib.sha256(tx.serialize()).digest()).hexdigest()
+    # Calculate TXID
+    tx.txid = hashlib.sha256(
+        hashlib.sha256(tx.serialize()).digest()
+    ).hexdigest()
     
+    logger.info(f"Created transaction: {tx.txid[:16]}...")
     return tx
 
-def send_transaction(tx_hex: str, node_url: str = "http://localhost:8332") -> dict:
+
+def send_transaction(
+    tx_hex: str, 
+    node_url: str = "http://localhost:8332"
+) -> dict:
     """
-    Send a raw transaction to the Bitcoin network
+    Gửi transaction đến Bitcoin node.
+    
+    Note: Đây là mock implementation. 
+    Production cần kết nối thực đến Bitcoin node RPC.
     
     Args:
-        tx_hex: Raw transaction in hex format
-        node_url: URL of the Bitcoin node to send the transaction to
+        tx_hex: Raw transaction hex
+        node_url: URL của Bitcoin node
         
     Returns:
-        Response from the node
+        dict: Response từ node
     """
-    # This is a placeholder - in a real implementation, you would:
-    # 1. Connect to a Bitcoin node via RPC
-    # 2. Call the sendrawtransaction RPC method
-    # 3. Return the transaction ID
+    # Mock response
+    txid = hashlib.sha256(bytes.fromhex(tx_hex)).hexdigest()
     
-    # For now, just return a mock response
+    logger.info(f"Transaction sent (simulated): {txid[:16]}...")
+    
     return {
-        'txid': hashlib.sha256(bytes.fromhex(tx_hex)).hexdigest(),
+        'txid': txid,
         'success': True,
         'message': 'Transaction sent successfully (simulated)'
     }
