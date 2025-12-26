@@ -30,12 +30,14 @@ Hash Functions (util):
 
 from .tx_utils import (
     generate_keypair,
-    create_p2pkh_script,
     sign_transaction,
-    verify_transaction,
     create_signed_transaction,
     debug_print_transaction,
     DebugTransactionError
+)
+
+from core.transaction_verifier import (
+    verify_transaction,
 )
 
 from .block_utils import (

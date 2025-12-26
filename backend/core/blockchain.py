@@ -28,7 +28,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.block import Block
 from core.blockheader import BlockHeader
 from core.Tx import Tx, TxIn, TxOut, Script
-from database.database import BlockchainDB
+from core.database.database import BlockchainDB, BalanceDB
+from core.mempool import mempool
 from util.util import hash256
 
 
@@ -52,7 +53,10 @@ ZERO_HASH = "0" * 64                    # 32 bytes zeros (hex)
 VERSION = 1                              # Block version
 INITIAL_SUBSIDY = 50 * (10 ** 8)        # 50 BTC in satoshis
 HALVING_INTERVAL = 210_000               # Blocks between halvings
-DEFAULT_DIFFICULTY = 'ffff001f'          # Easy difficulty for testing
+DEFAULT_DIFFICULTY = '1d00ffff'          # Easy difficulty for testing
+DIFFICULTY_ADJUSTMENT_INTERVAL = 10      # Adjust every 10 blocks (demo)
+TARGET_BLOCK_TIME = 60                   # 1 minute per block (demo)
+MAX_TARGET = 0x0000ffff00000000000000000000000000000000000000000000000000000000
 
 
 # =============================================================================
@@ -85,6 +89,7 @@ class Blockchain:
         Nếu database rỗng, tự động tạo Genesis block.
         """
         self.db = BlockchainDB()
+        self.balance_db = BalanceDB()
         
         # Kiểm tra và tạo Genesis block nếu cần
         last_block = self.db.lastBlock()
@@ -211,6 +216,56 @@ class Blockchain:
         return coinbase_tx
     
     # =========================================================================
+    # DIFFICULTY ADJUSTMENT
+    # =========================================================================
+    
+    def calculate_next_bits(self, last_block: Dict[str, Any]) -> str:
+        """
+        Tính toán difficulty (bits) cho block tiếp theo.
+        
+        Nếu đến chu kỳ điều chỉnh:
+        - Tính thời gian thực tế để mine 10 blocks cuối
+        - So sánh với thời gian mong đợi (10 * TARGET_BLOCK_TIME)
+        - Điều chỉnh target (bits) tương ứng (nhưng không vượt quá MAX_TARGET)
+        """
+        height = last_block['Height']
+        current_bits = last_block['Blockheader']['bits']
+        
+        # Chỉ điều chỉnh sau mỗi DIFFICULTY_ADJUSTMENT_INTERVAL blocks
+        if (height + 1) % DIFFICULTY_ADJUSTMENT_INTERVAL != 0:
+            return current_bits
+            
+        # Lấy block bắt đầu chu kỳ
+        first_block_height = height - (DIFFICULTY_ADJUSTMENT_INTERVAL - 1)
+        first_block = self.db.get_block_by_height(first_block_height)
+        
+        if not first_block:
+            return current_bits
+            
+        # Tính thời gian thực tế
+        actual_time = last_block['Blockheader']['timestamp'] - first_block['Blockheader']['timestamp']
+        expected_time = DIFFICULTY_ADJUSTMENT_INTERVAL * TARGET_BLOCK_TIME
+        
+        # Tránh biến động quá lớn (max 4x hoặc min 0.25x)
+        if actual_time < expected_time // 4:
+            actual_time = expected_time // 4
+        if actual_time > expected_time * 4:
+            actual_time = expected_time * 4
+            
+        # Điều chỉnh target
+        current_target = BlockHeader.bits_to_target(current_bits)
+        new_target = (current_target * actual_time) // expected_time
+        
+        # Giới hạn target
+        if new_target > MAX_TARGET:
+            new_target = MAX_TARGET
+            
+        new_bits = BlockHeader.target_to_bits(new_target)
+        logger.info(f"Difficulty adjusted: {current_bits} -> {new_bits} (Actual: {actual_time}s, Expected: {expected_time}s)")
+        
+        return new_bits
+    
+    # =========================================================================
     # ADD BLOCK
     # =========================================================================
     
@@ -237,21 +292,25 @@ class Blockchain:
         # 1. Tạo coinbase transaction
         coinbase_tx = self.create_coinbase_tx(block_height)
         
-        # 2. Thu thập transactions (simplified: chỉ có coinbase)
-        # TODO: Thêm transactions từ mempool
-        transactions = [coinbase_tx]
+        # 2. Thu thập transactions từ mempool
+        mempool_txs = mempool.get_transactions_for_block()
+        transactions = [coinbase_tx] + mempool_txs
         
         # 3. Tính Merkle root
         tx_hashes = [tx.id() for tx in transactions]
         merkle_root = self._calculate_merkle_root(tx_hashes)
         
-        # 4. Tạo block header
+        # 4. Xác định difficulty (bits)
+        last_block = self.db.lastBlock()
+        bits = self.calculate_next_bits(last_block) if last_block else DEFAULT_DIFFICULTY
+        
+        # 5. Tạo block header
         blockheader = BlockHeader(
             version=VERSION,
             previous_block_hash=previous_hash,
             merkle_root=merkle_root,
             timestamp=timestamp,
-            bits=DEFAULT_DIFFICULTY
+            bits=bits
         )
         
         # 5. Mining
@@ -287,14 +346,33 @@ class Blockchain:
     
     def _write_block(self, block: Block) -> None:
         """
-        Ghi block vào database.
-        
-        Args:
-            block: Block object cần lưu
+        Ghi block vào database và cập nhật sổ cái số dư.
         """
         block_dict = block.to_dict()
         self.db.write(block_dict)
-        logger.info(f"Block {block_dict.get('Height')} written to database")
+        
+        # Cập nhật số dư cho từng giao dịch trong block
+        block_height = block.Height
+        for tx_dict in block_dict.get('Txs', []):
+            # 1. Xử lý Outputs (Tăng số dư)
+            for tx_out in tx_dict.get('tx_outs', []):
+                addr = "unknown"
+                script = tx_out.get('script_pubkey', [])
+                if isinstance(script, list) and len(script) >= 3 and script[0] == 'OP_DUP':
+                    addr = script[2]
+                
+                amount = tx_out.get('amount', 0)
+                current_bal = self.balance_db.get_latest_balance(addr)
+                self.balance_db.record_change(addr, block_height, amount, current_bal + amount)
+
+            # 2. Xử lý Inputs (Giảm số dư - Skip coinbase)
+            if not tx_dict.get('is_coinbase'):
+                for tx_in in tx_dict.get('tx_ins', []):
+                    # Trong bản demo đơn giản, chúng ta ghi nhận việc tiêu tiền
+                    # Thực tế cần tìm ai là chủ sở hữu của UTXO cũ.
+                    pass 
+
+        logger.info(f"Block {block_height} written to database and ledger updated")
     
     # =========================================================================
     # FETCH BLOCKS

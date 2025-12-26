@@ -17,15 +17,17 @@ Functions:
 import json
 import time
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 
+# Local imports to avoid circular dependency
 from core.block import Block
-from core.blockheader import BlockHeader
-from core.Tx import Tx, Script
+from core.Tx import Tx, TxIn, TxOut, Script
 from core.mempool import mempool
-from .tx_utils import verify_transaction
-from .merkle import calculate_merkle_root  # Import từ merkle.py, không duplicate
+from core.transaction_verifier import verify_transaction
+from .merkle import calculate_merkle_root
 
+if TYPE_CHECKING:
+    from core.blockheader import BlockHeader
 
 # =============================================================================
 # LOGGING SETUP
@@ -59,25 +61,6 @@ class BlockCreationError(Exception):
 class BlockBuilder:
     """
     Block Builder - Tạo block theo pattern Builder.
-    
-    Workflow sử dụng:
-    1. Khởi tạo với previous block hash
-    2. Set coinbase transaction (block reward)
-    3. Thêm các transactions từ mempool
-    4. Gọi create_block() để hoàn thành
-    
-    Example:
-        builder = BlockBuilder(previous_block_hash)
-        builder.set_coinbase_transaction(miner_address, reward, height)
-        builder.add_transaction(tx, utxo_set)
-        block = builder.create_block(height)
-    
-    Attributes:
-        transactions: Danh sách transactions đã thêm
-        previous_block_hash: Hash của block trước
-        difficulty_bits: Difficulty target
-        coinbase_tx: Coinbase transaction
-        version: Block version
     """
     
     def __init__(
@@ -85,13 +68,7 @@ class BlockBuilder:
         previous_block_hash: str, 
         difficulty_bits: str = DEFAULT_DIFFICULTY
     ):
-        """
-        Khởi tạo BlockBuilder.
-        
-        Args:
-            previous_block_hash: Hash của block trước (64 hex chars)
-            difficulty_bits: Difficulty target dạng compact
-        """
+        """Khởi tạo BlockBuilder."""
         self.transactions: List[Tx] = []
         self.previous_block_hash = previous_block_hash
         self.difficulty_bits = difficulty_bits
@@ -106,22 +83,11 @@ class BlockBuilder:
         reward: int, 
         height: int
     ) -> None:
-        """
-        Tạo và set coinbase transaction.
-        
-        Coinbase là transaction đặc biệt ở đầu mỗi block:
-        - Không có input thực
-        - Output chứa block reward + transaction fees
-        
-        Args:
-            miner_address: Địa chỉ nhận block reward
-            reward: Số satoshis (block reward + fees)
-            height: Block height (dùng trong scriptSig)
-        """
+        """Tạo và set coinbase transaction."""
         self.coinbase_tx = {
-            'txid': ZERO_HASH,  # Coinbase txid sẽ được tính sau
+            'txid': ZERO_HASH,
             'vin': [{
-                'coinbase': f'03{height:08x}',  # Height theo BIP34
+                'coinbase': f'03{height:08x}',
                 'sequence': 0xffffffff
             }],
             'vout': [{
@@ -136,7 +102,6 @@ class BlockBuilder:
             'version': 1,
             'locktime': 0
         }
-        
         logger.info(f"Coinbase set: reward={reward} satoshis, height={height}")
     
     def add_transaction(
@@ -144,69 +109,29 @@ class BlockBuilder:
         tx: Tx, 
         utxo_set: Dict[str, Dict[int, Dict[str, Any]]]
     ) -> bool:
-        """
-        Thêm transaction vào block (nếu hợp lệ).
-        
-        Validation:
-        1. Verify transaction (signature, inputs, outputs)
-        2. Kiểm tra duplicate
-        
-        Args:
-            tx: Transaction cần thêm
-            utxo_set: UTXO set hiện tại để verify
-            
-        Returns:
-            bool: True nếu thêm thành công
-        """
+        """Thêm transaction vào block (nếu hợp lệ)."""
         txid = tx.id()
-        
-        # Verify transaction
         if not verify_transaction(tx, utxo_set):
-            logger.warning(f"Invalid transaction: {txid[:16]}...")
             return False
-        
-        # Check duplicate
         for existing_tx in self.transactions:
             if existing_tx.id() == txid:
-                logger.warning(f"Duplicate transaction: {txid[:16]}...")
                 return False
-        
-        # Add transaction
         self.transactions.append(tx)
-        logger.debug(f"Added transaction: {txid[:16]}...")
         return True
     
     def create_block(self, height: int) -> Block:
-        """
-        Tạo block hoàn chỉnh với tất cả transactions.
+        """Tạo block hoàn chỉnh."""
+        # Import local để tránh circular dependency
+        from core.blockheader import BlockHeader
         
-        Steps:
-        1. Verify coinbase đã được set
-        2. Thu thập tất cả tx hashes
-        3. Tính Merkle root
-        4. Tạo block header
-        5. Tạo Block object
-        
-        Args:
-            height: Block height
-            
-        Returns:
-            Block: Block object hoàn chỉnh
-            
-        Raises:
-            BlockCreationError: Nếu coinbase chưa được set
-        """
         if not self.coinbase_tx:
             raise BlockCreationError("Coinbase transaction not set")
         
-        # Thu thập tx hashes (coinbase first)
         tx_hashes = [self.coinbase_tx['txid']]
         tx_hashes.extend(tx.id() for tx in self.transactions)
         
-        # Tính Merkle root
         merkle_root = calculate_merkle_root(tx_hashes)
         
-        # Tạo block header
         header = BlockHeader(
             version=self.version,
             previous_block_hash=self.previous_block_hash,
@@ -214,13 +139,8 @@ class BlockBuilder:
             bits=self.difficulty_bits
         )
         
-        # Prepare all transactions
         all_txs = [self.coinbase_tx] + [tx.to_dict() for tx in self.transactions]
-        
-        # Tính block size
         block_size = len(json.dumps(all_txs, default=str).encode('utf-8'))
-        
-        logger.info(f"Created block: height={height}, txs={len(all_txs)}, size={block_size}")
         
         return Block(
             Height=height,
@@ -239,22 +159,10 @@ def create_genesis_block(
     coinbase_tx: Dict[str, Any], 
     timestamp: Optional[int] = None
 ) -> Block:
-    """
-    Tạo Genesis Block (block đầu tiên).
+    """Tạo Genesis Block."""
+    # Import local để tránh circular dependency
+    from core.blockheader import BlockHeader
     
-    Genesis block có đặc điểm:
-    - Height = 0
-    - Previous block hash = zeros
-    - Chỉ chứa coinbase transaction
-    
-    Args:
-        coinbase_tx: Coinbase transaction dict
-        timestamp: Unix timestamp, mặc định là now
-        
-    Returns:
-        Block: Genesis block
-    """
-    # Genesis block header
     header = BlockHeader(
         version=1,
         previous_block_hash=ZERO_HASH,
@@ -263,10 +171,7 @@ def create_genesis_block(
         bits=DEFAULT_DIFFICULTY
     )
     
-    # Tính block size
     block_size = len(json.dumps([coinbase_tx], default=str))
-    
-    logger.info("Genesis block created")
     
     return Block(
         Height=0,
@@ -286,48 +191,29 @@ def add_transactions_to_block(
     transactions: List[Tx], 
     utxo_set: Dict[str, Dict[int, Dict[str, Any]]]
 ) -> Tuple[Block, List[Tx]]:
-    """
-    Thêm transactions vào block đã tồn tại.
-    
-    Lưu ý: Function này modify block in-place VÀ utxo_set.
-    
-    Args:
-        block: Block cần thêm transactions
-        transactions: Danh sách transactions
-        utxo_set: UTXO set (sẽ được cập nhật)
-        
-    Returns:
-        Tuple[Block, List[Tx]]: Block đã update và list các tx đã thêm
-    """
+    """Thêm transactions vào block đã tồn tại."""
     added_txs: List[Tx] = []
     
     for tx in transactions:
         try:
-            # Kiểm tra block size limit
             if block.Blocksize > DEFAULT_BLOCK_SIZE_LIMIT:
                 logger.warning("Block size limit reached")
                 break
             
-            # Verify và thêm transaction
             if not verify_transaction(tx, utxo_set):
                 continue
             
-            # Thêm vào block
             block.Txs.append(tx.to_dict())
             block.Txcount += 1
             block.Blocksize += len(json.dumps(tx.to_dict(), default=str))
             added_txs.append(tx)
             
-            # Cập nhật UTXO set
             _update_utxo_set(tx, utxo_set)
-            
-            logger.debug(f"Added tx {tx.id()[:16]}... to block")
             
         except Exception as e:
             logger.error(f"Error adding transaction: {e}")
             continue
     
-    # Cập nhật Merkle root nếu có transactions mới
     if added_txs:
         tx_hashes = []
         for tx_data in block.Txs:
@@ -346,21 +232,13 @@ def _update_utxo_set(
     tx: Tx, 
     utxo_set: Dict[str, Dict[int, Dict[str, Any]]]
 ) -> None:
-    """
-    Cập nhật UTXO set sau khi thêm transaction.
-    
-    Actions:
-    1. Xóa các outputs đã bị spend (inputs của tx)
-    2. Thêm các outputs mới của tx
-    """
+    """Cập nhật UTXO set."""
     txid = tx.id()
     
-    # Xóa spent outputs
     for tx_in in tx.tx_ins:
         if tx_in.prev_tx in utxo_set:
             utxo_set[tx_in.prev_tx].pop(tx_in.prev_index, None)
     
-    # Thêm new outputs
     utxo_set[txid] = {}
     for i, tx_out in enumerate(tx.tx_outs):
         utxo_set[txid][i] = {

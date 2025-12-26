@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,7 @@
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
+
 <body class="bg-gray-100">
     <nav class="bg-blue-600 text-white p-4">
         <div class="container mx-auto flex justify-between items-center">
@@ -14,6 +16,7 @@
             <div class="space-x-4">
                 <a href="{{ url_for('index') }}" class="hover:underline">Home</a>
                 <a href="{{ url_for('blocks') }}" class="hover:underline">Blocks</a>
+                <a href="{{ url_for('history') }}" class="hover:underline">History</a>
                 <a href="{{ url_for('verify_transaction_page') }}" class="hover:underline">Verify Transaction</a>
             </div>
         </div>
@@ -26,4 +29,5 @@
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
+
 </html>

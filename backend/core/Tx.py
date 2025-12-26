@@ -358,6 +358,43 @@ class Tx:
         
         return bytes(result)
 
+    def sig_hash(self, input_index: int, script_pubkey: Script) -> bytes:
+        """
+        Tính hash của transaction để ký/xác thực (SIGHASH_ALL).
+        
+        Quy trình chuẩn Bitcoin (Legacy):
+        1. Tạo bản sao của transaction
+        2. Xóa script_sig của tất cả inputs
+        3. Gán script_pubkey (của UTXO đang chi) vào script_sig của input tương ứng
+        4. Serialize transaction + append SIGHASH_TYPE (1 = SIGHASH_ALL)
+        5. Double SHA-256
+        
+        Args:
+            input_index: Index của input đang được xử lý
+            script_pubkey: Locking script của UTXO mà input này đang chi tiêu
+            
+        Returns:
+            bytes: 32-byte hash
+        """
+        # 1. Tạo bản sao (deep copy đơn giản)
+        temp_ins = []
+        for i, tx_in in enumerate(self.tx_ins):
+            if i == input_index:
+                # Gán script_pubkey cho input đang xét
+                temp_ins.append(TxIn(tx_in.prev_tx, tx_in.prev_index, script_pubkey, tx_in.sequence))
+            else:
+                # Xóa script_sig cho các inputs khác
+                temp_ins.append(TxIn(tx_in.prev_tx, tx_in.prev_index, Script(), tx_in.sequence))
+        
+        temp_tx = Tx(self.version, temp_ins, self.tx_outs, self.locktime)
+        
+        # 2. Serialize + SIGHASH_ALL (1)
+        # SIGHASH_ALL là 4 bytes little-endian
+        s = temp_tx.serialize() + (1).to_bytes(4, 'little')
+        
+        # 3. Double SHA-256
+        return hashlib.sha256(hashlib.sha256(s).digest()).digest()
+
     def is_coinbase(self) -> bool:
         """
         Kiểm tra xem đây có phải là Coinbase transaction không.

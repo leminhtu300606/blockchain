@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # CONSTANTS
 # =============================================================================
 
-DEFAULT_FILENAME = 'blockchain_data'
+DEFAULT_FILENAME = 'blockchain.json'
 DEFAULT_BITS = '1d00ffff'
 
 
@@ -79,155 +79,44 @@ class BaseDB:
 
     def read(self) -> List[Dict[str, Any]]:
         """
-        Đọc dữ liệu blockchain từ file.
-        
-        Format file:
-            Block 0
-            Timestamp: 2024-01-01 00:00:00
-            Hash: abc123...
-            Previous Hash: 000...
-            Transactions: 1
-            Bits: 1d00ffff
-            Nonce: 12345
-            
-            Block 1
-            ...
-        
-        Optimization:
-        - Trả về cache nếu còn valid
-        - Chỉ đọc file khi cần thiết
-        
-        Returns:
-            List[Dict]: Danh sách blocks dưới dạng dictionaries
+        Đọc dữ liệu từ file JSON.
         """
-        # Trả về cache nếu valid
         if self._cache_valid and self._cache is not None:
-            logger.debug("Returning cached blockchain data")
             return self._cache
         
-        # File chưa tồn tại
         if not self.filepath.exists():
-            logger.info(f"Database file not found: {self.filepath}")
-            logger.info("Returning empty blockchain (will be created)")
             return []
         
         try:
-            blocks: List[Dict[str, Any]] = []
-            current_block: Dict[str, Any] = {}
-            
             with open(self.filepath, 'r', encoding='utf-8') as file:
-                for line in file:
-                    line = line.strip()
-                    
-                    # Dòng trống hoặc block mới
-                    if not line:
-                        continue
-                    
-                    # Bắt đầu block mới
-                    if line.startswith('Block'):
-                        # Lưu block trước (nếu có)
-                        if current_block:
-                            blocks.append(current_block)
-                        
-                        # Parse block number
-                        parts = line.split(' ')
-                        block_num = parts[1] if len(parts) > 1 else '0'
-                        current_block = {'Block': block_num}
-                    
-                    # Parse key:value pairs
-                    elif ':' in line and current_block:
-                        key, value = line.split(':', 1)
-                        current_block[key.strip()] = value.strip()
-                
-                # Lưu block cuối cùng
-                if current_block:
-                    blocks.append(current_block)
-            
-            # Update cache
-            self._cache = blocks
-            self._cache_valid = True
-            
-            logger.info(f"Loaded {len(blocks)} blocks from database")
-            return blocks
-            
+                data = json.load(file)
+                self._cache = data
+                self._cache_valid = True
+                return data
         except Exception as e:
             logger.error(f"Error reading database: {e}")
             return []
 
-    def write(self, block_data: Dict[str, Any]) -> bool:
+    def write_all(self, data: List[Dict[str, Any]]) -> bool:
         """
-        Ghi một block mới vào file.
-        
-        Args:
-            block_data: Dictionary chứa block data với format:
-                {
-                    'Height': 0,
-                    'Blockheader': {
-                        'timestamp': 1234567890,
-                        'blockhash': 'abc...',
-                        'previous_block_hash': '000...',
-                        'bits': '1d00ffff',
-                        'nonce': 12345
-                    },
-                    'Txcount': 1
-                }
-        
-        Returns:
-            bool: True nếu ghi thành công
+        Ghi toàn bộ dữ liệu vào file.
         """
         try:
-            # Chuẩn bị formatted block
-            formatted_lines: List[str] = []
-            
-            # Block header
-            block_height = block_data.get('Height', 0)
-            formatted_lines.append(f"Block {block_height}")
-            
-            # Timestamp
-            blockheader = block_data.get('Blockheader', {})
-            timestamp = blockheader.get('timestamp')
-            if timestamp:
-                dt = datetime.fromtimestamp(int(timestamp))
-                formatted_lines.append(f"Timestamp: {dt.strftime('%Y-%m-%d %H:%M:%S')}")
-            
-            # Block hash
-            blockhash = blockheader.get('blockhash', blockheader.get('block_hash', ''))
-            if blockhash:
-                formatted_lines.append(f"Hash: {blockhash}")
-            
-            # Previous hash
-            prev_hash = blockheader.get('previous_block_hash', '')
-            if prev_hash:
-                formatted_lines.append(f"Previous Hash: {prev_hash}")
-            
-            # Transaction count
-            tx_count = block_data.get('Txcount', 0)
-            formatted_lines.append(f"Transactions: {tx_count}")
-            
-            # Bits (difficulty)
-            bits = blockheader.get('bits', DEFAULT_BITS)
-            formatted_lines.append(f"Bits: {bits}")
-            
-            # Nonce
-            nonce = blockheader.get('nonce', 0)
-            formatted_lines.append(f"Nonce: {nonce}")
-            
-            # Dòng trống để phân cách blocks
-            formatted_lines.append('')
-            
-            # Ghi vào file (append mode)
-            with open(self.filepath, 'a', encoding='utf-8') as file:
-                file.write('\n'.join(formatted_lines) + '\n')
-            
-            # Invalidate cache
+            with open(self.filepath, 'w', encoding='utf-8') as file:
+                json.dump(data, file, indent=4)
             self._invalidate_cache()
-            
-            logger.info(f"Block {block_height} written to database")
             return True
-                
         except Exception as e:
             logger.error(f"Error writing to database: {e}")
             return False
+
+    def write(self, block_data: Dict[str, Any]) -> bool:
+        """
+        Ghi một block mới vào cuối danh sách.
+        """
+        blocks = self.read()
+        blocks.append(block_data)
+        return self.write_all(blocks)
     
     def _invalidate_cache(self) -> None:
         """Đánh dấu cache không còn hợp lệ."""
@@ -295,6 +184,62 @@ class BlockchainDB(BaseDB):
         logger.warning(f"Block at height {height} not found")
         return None
     
+    def get_transactions_by_address(self, address: str) -> List[Dict[str, Any]]:
+        """
+        Tìm tất cả giao dịch liên quan đến một địa chỉ.
+        """
+        blocks = self.read()
+        history = []
+        
+        for block in blocks:
+            height = int(block.get('Block', 0))
+            timestamp = block.get('Timestamp', '')
+            
+            for tx in block.get('Txs', []):
+                # Search in outputs
+                is_relevant = False
+                for output in tx.get('outputs', []):
+                    if address in output:
+                        is_relevant = True
+                        break
+                
+                # Search in inputs (if not coinbase)
+                if not is_relevant and tx.get('type') != 'Coinbase':
+                    for inp in tx.get('inputs', []):
+                        # This part is harder because we don't store sender address directly in DB 
+                        # but we can look for address hash in input markers if we had more info
+                        pass
+                
+                if is_relevant:
+                    history.append({
+                        'txid': tx['txid'],
+                        'type': tx['type'],
+                        'block_height': height,
+                        'timestamp': timestamp,
+                        'outputs': tx['outputs'],
+                        'inputs': tx['inputs']
+                    })
+            
+        return history
+
+    def get_transaction_by_id(self, txid: str) -> Optional[Dict[str, Any]]:
+        """
+        Tìm giao dịch theo TXID.
+        """
+        blocks = self.read()
+        for block in blocks:
+            for tx in block.get('Txs', []):
+                if tx['txid'] == txid or tx['txid'].startswith(txid):
+                    return {
+                        'txid': tx['txid'],
+                        'type': tx['type'],
+                        'block_height': int(block.get('Block', 0)),
+                        'timestamp': block.get('Timestamp', ''),
+                        'outputs': tx['outputs'],
+                        'inputs': tx['inputs']
+                    }
+        return None
+    
     def clear(self) -> bool:
         """
         Xóa toàn bộ blockchain (dùng cho testing).
@@ -344,5 +289,63 @@ class BlockchainDB(BaseDB):
                 'bits': raw_block.get('Bits', DEFAULT_BITS),
                 'nonce': int(raw_block.get('Nonce', 0))
             },
-            'Txcount': int(raw_block.get('Transactions', 0))
+            'Txcount': int(raw_block.get('Transactions', 0)),
+            'Txs': raw_block.get('Txs', [])
         }
+
+
+class BalanceDB(BaseDB):
+    """
+    Balance Database - Quản lý số dư và lịch sử biến động.
+    Lưu trữ vào file balance_ledger.txt
+    """
+    
+    def __init__(self):
+        super().__init__(filename='balance_ledger')
+
+    def record_change(self, address: str, block_height: int, change: int, final_balance: int) -> bool:
+        """
+        Ghi lại một biến động số dư.
+        Format: Address | Block | Change | Balance
+        """
+        line = f"{address} | {block_height} | {change} | {final_balance}\n"
+        try:
+            with open(self.filepath, 'a', encoding='utf-8') as f:
+                f.write(line)
+            return True
+        except Exception as e:
+            logger.error(f"Error recording balance change: {e}")
+            return False
+
+    def get_history(self, address: str) -> List[Dict[str, Any]]:
+        """
+        Lấy lịch sử biến động số dư của một địa chỉ.
+        """
+        history = []
+        if not self.filepath.exists():
+            return history
+
+        try:
+            with open(self.filepath, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if address in line:
+                        parts = [p.strip() for p in line.split('|')]
+                        if len(parts) == 4 and parts[0] == address:
+                            history.append({
+                                'block': int(parts[1]),
+                                'change': int(parts[2]),
+                                'balance': int(parts[3])
+                            })
+            return history
+        except Exception as e:
+            logger.error(f"Error reading balance history: {e}")
+            return []
+
+    def get_latest_balance(self, address: str) -> int:
+        """
+        Lấy số dư cuối cùng của một địa chỉ.
+        """
+        history = self.get_history(address)
+        if not history:
+            return 0
+        return history[-1]['balance']

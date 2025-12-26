@@ -18,6 +18,7 @@ from typing import Dict, Any, Optional
 from ecdsa import VerifyingKey, SECP256k1, BadSignatureError
 
 from .Tx import Tx, TxIn, TxOut, Script
+from util.util import hash160
 
 
 # =============================================================================
@@ -179,21 +180,48 @@ class TransactionVerifier:
             return True
         
         # =====================================================================
-        # Check 3: Signature Verification (simplified)
+        # Check 3: Signature Verification
         # =====================================================================
         
-        # Note: Đây là phiên bản đơn giản hóa
-        # Full implementation cần:
-        # 1. Reconstruct signed message (tx data with specific sighash)
-        # 2. Extract public key from script_sig
-        # 3. Verify ECDSA signature
+        # Bitcoin P2PKH logic:
+        # script_sig: [signature, pubkey]
+        # script_pubkey: [OP_DUP, OP_HASH160, pubkey_hash, OP_EQUALVERIFY, OP_CHECKSIG]
         
         try:
-            # Placeholder for signature verification
-            # Trong production, implement full verification
-            return True
+            # 1. Parse script_sig: [sig_hex, pubkey_hex]
+            if len(script_sig) < 2:
+                logger.debug("script_sig too short for P2PKH")
+                return False
+                
+            sig_hex = script_sig[0]
+            pubkey_hex = script_sig[1]
             
-        except (ValueError, BadSignatureError) as e:
+            # 2. Verify HASH160(pubkey) == pubkey_hash
+            pubkey_bytes = bytes.fromhex(pubkey_hex)
+            computed_hash = hash160(pubkey_bytes).hex()
+            
+            # script_pubkey format check
+            if len(script_pubkey) < 5 or script_pubkey[0] != 'OP_DUP':
+                logger.debug("Unsupported script_pubkey format (non-P2PKH)")
+                return True # Allow other types for now
+                
+            expected_hash = script_pubkey[2]
+            if computed_hash != expected_hash:
+                logger.warning(f"Pubkey hash mismatch: {computed_hash} != {expected_hash}")
+                return False
+            
+            # 3. Calculate Signature Hash (z)
+            # Reconstruct script_pubkey object for hashing
+            spk_obj = Script(script_pubkey)
+            z = tx.sig_hash(input_index, spk_obj)
+            
+            # 4. Verify ECDSA signature
+            vk = VerifyingKey.from_string(pubkey_bytes, curve=SECP256k1)
+            sig_bytes = bytes.fromhex(sig_hex)
+            
+            return vk.verify(sig_bytes, z, hashfunc=hashlib.sha256)
+            
+        except (ValueError, BadSignatureError, Exception) as e:
             logger.warning(f"Signature verification failed: {e}")
             return False
     

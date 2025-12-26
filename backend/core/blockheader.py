@@ -169,26 +169,46 @@ class BlockHeader:
                 print(f"Mining... Nonce: {self.nonce:,}, "
                       f"Hash: {hash_result[:16]}...", end="\r")
     
-    def calculate_target(self) -> int:
+        return self.bits_to_target(self.bits)
+    
+    @staticmethod
+    def bits_to_target(bits: str) -> int:
         """
         Chuyển đổi bits (compact format) thành target number.
         
-        Bits format: 0x[exponent][coefficient]
+        Bits format (4 bytes hex): [exponent][coefficient]
         Target = coefficient * 2^(8*(exponent-3))
         
-        Ví dụ: bits = '1d00ffff'
-        - exponent = 0x1d = 29
+        Example: bits = '1d00ffff'
+        - exponent = 0x1d (29)
         - coefficient = 0x00ffff
         - target = 0x00ffff * 2^(8*(29-3)) = 0x00ffff * 2^208
-        
-        Note: Phiên bản đơn giản, dùng target cố định cho testing.
-        
-        Returns:
-            int: Target number (hash phải nhỏ hơn số này)
         """
-        # Simplified target for testing (dễ mine)
-        # Với target này, mỗi hash có khoảng 1/65536 cơ hội thành công
-        return 0x0000ffff00000000000000000000000000000000000000000000000000000000
+        bits_bytes = bytes.fromhex(bits)
+        exponent = bits_bytes[0]
+        coefficient = int.from_bytes(bits_bytes[1:], 'big')
+        return coefficient * 2**(8*(exponent - 3))
+
+    @staticmethod
+    def target_to_bits(target: int) -> str:
+        """
+        Chuyển đổi target number thành bits (compact format).
+        """
+        s = format(target, 'x')
+        if len(s) % 2 != 0:
+            s = '0' + s
+        
+        target_bytes = bytes.fromhex(s)
+        
+        # Nếu byte đầu >= 0x80, cần thêm 1 byte zero phía trước để tránh số âm
+        if target_bytes[0] >= 0x80:
+            target_bytes = b'\x00' + target_bytes
+            
+        exponent = len(target_bytes)
+        coefficient = target_bytes[:3]
+        
+        # Kết quả là 1 byte exponent + 3 bytes coefficient
+        return exponent.to_bytes(1, 'big').hex() + coefficient.hex()
     
     # =========================================================================
     # SERIALIZATION METHODS

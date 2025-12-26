@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h2 class="text-2xl font-bold text-gray-800 mb-4">Transaction History</h2>
+
+        <form action="#" method="GET"
+            onsubmit="window.location.href='/history/' + document.getElementById('addr_search').value; return false;"
+            class="flex gap-2">
+            <input type="text" id="addr_search" placeholder="Enter Wallet Address (e.g. test_address_hash)"
+                class="flex-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value="{{ address if address else '' }}">
+            <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
+                Search
+            </button>
+        </form>
+    </div>
+
+    {% if address %}
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        <div class="md:col-span-2 bg-white rounded-lg shadow-md p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-gray-700">Transaction History</h3>
+                <span class="text-sm text-gray-500">Found {{ history|length }} transactions</span>
+            </div>
+
+            {% if history %}
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                TXID</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Block</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Type</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Amount/Out</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        {% for tx in history %}
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-500">
+                                {{ tx.txid[:16] }}...
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                #{{ tx.block_height }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span
+                                    class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                                      {{ 'bg-green-100 text-green-800' if tx.type == 'Coinbase' else 'bg-blue-100 text-blue-800' }}">
+                                    {{ tx.type }}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-sm text-gray-500">
+                                {% for out in tx.outputs %}
+                                <div class="truncate max-w-xs">{{ out }}</div>
+                                {% endfor %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center py-10 text-gray-500 italic">No transactions found.</div>
+            {% endif %}
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h3 class="text-lg font-semibold text-gray-700 mb-4">Balance Summary</h3>
+            <div class="bg-blue-50 p-4 rounded-lg mb-6">
+                <p class="text-sm text-blue-600 font-semibold uppercase">Current Balance</p>
+                <p class="text-3xl font-bold text-blue-800">{{ current_balance }} <span
+                        class="text-sm font-normal">sats</span></p>
+            </div>
+
+            <h4 class="text-md font-semibold text-gray-600 mb-2">Balance Evolution</h4>
+            <div class="space-y-3 max-h-96 overflow-y-auto pr-2">
+                {% for entry in balance_history|reverse %}
+                <div
+                    class="flex justify-between items-center p-3 bg-gray-50 rounded-md border-l-4 {{ 'border-green-500' if entry.change > 0 else 'border-red-500' }}">
+                    <div>
+                        <p class="text-xs text-gray-500">Block #{{ entry.block }}</p>
+                        <p class="text-sm font-semibold {{ 'text-green-600' if entry.change > 0 else 'text-red-600' }}">
+                            {{ '+' if entry.change > 0 else '' }}{{ entry.change }}
+                        </p>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-xs text-gray-400">Balance</p>
+                        <p class="text-sm font-mono font-bold text-gray-700">{{ entry.balance }}</p>
+                    </div>
+                </div>
+                {% endfor %}
+                {% if not balance_history %}
+                <p class="text-center text-gray-400 italic text-sm">No balance changes recorded.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="bg-gray-50 rounded-lg border-2 border-dashed border-gray-300 p-20 text-center">
+        <p class="text-gray-500">Enter an address above to view its transaction history.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
