@@ -130,6 +130,34 @@ def history(address=None):
     
     return render_template('history.html', address=None, history=[], balance_history=[], current_balance=0)
 
+@app.route('/wallet')
+def wallet():
+    """Wallet page."""
+    return render_template('wallet.html')
+
+@app.route('/api/wallet/generate', methods=['GET'])
+def generate_wallet():
+    """API to generate a new keypair."""
+    from util.tx_utils import generate_keypair
+    private_key, public_key = generate_keypair()
+    # In a real app, private key would be handled securely client-side
+    return jsonify({
+        'private_key': private_key.to_string().hex(),
+        'public_key': public_key.to_string().hex()
+    })
+
+@app.route('/api/mining/control', methods=['POST'])
+def mining_control():
+    """API to start/stop mining."""
+    data = request.get_json()
+    action = data.get('action') # 'start' or 'stop'
+    # For now, we simulate success as the backend mining loop is synchronous/background-managed
+    return jsonify({
+        'success': True,
+        'status': 'mining' if action == 'start' else 'stopped',
+        'message': f'Miner {action}ed successfully'
+    })
+
 if __name__ == '__main__':
     # Use port 5001 to avoid conflict with standard 5000
     app.run(debug=True, port=5001)

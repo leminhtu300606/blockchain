@@ -4,27 +4,219 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Blockchain Explorer</title>
+    <title>BLOCKCHAIN | Premium Ecosystem</title>
+    <!-- Tailwind CSS -->
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Google Fonts -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+    <style>
+        :root {
+            --glass-bg: rgba(17, 25, 40, 0.75);
+            --glass-border: rgba(255, 255, 255, 0.125);
+            --accent-primary: #3b82f6;
+            /* Blue 500 */
+            --accent-secondary: #8b5cf6;
+            /* Violet 500 */
+            --accent-glow: rgba(59, 130, 246, 0.5);
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: radial-gradient(circle at top right, #0a0f1d, #020617);
+            color: #e2e8f0;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px) saturate(180%);
+            -webkit-backdrop-filter: blur(16px) saturate(180%);
+            border: 1px solid var(--glass-border);
+            border-radius: 1.25rem;
+        }
+
+        .nav-link {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+            transition: width 0.3s ease;
+        }
+
+        .nav-link:hover::after {
+            width: 100%;
+        }
+
+        .glow-button {
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            box-shadow: 0 0 15px var(--accent-glow);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .glow-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 0 25px var(--accent-glow);
+        }
+
+        .mono-font {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #020617;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #1e293b;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #334155;
+        }
+
+        /* Toast Notification */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            padding: 12px 24px;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            color: white;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            animation: slideUp 0.3s ease-out, fadeOut 0.3s ease-in 2.7s forwards;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes fadeOut {
+            from {
+                opacity: 1;
+            }
+
+            to {
+                opacity: 0;
+            }
+        }
+
+        .tooltip {
+            position: relative;
+        }
+
+        .tooltip:hover::before {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 120%;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 8px 12px;
+            background: #1e293b;
+            color: #f1f5f9;
+            font-size: 11px;
+            border-radius: 8px;
+            white-space: nowrap;
+            z-index: 100;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    </style>
+    {% block extra_head %}{% endblock %}
 </head>
 
-<body class="bg-gray-100">
-    <nav class="bg-blue-600 text-white p-4">
-        <div class="container mx-auto flex justify-between items-center">
-            <h1 class="text-2xl font-bold">Blockchain Explorer</h1>
-            <div class="space-x-4">
-                <a href="{{ url_for('index') }}" class="hover:underline">Home</a>
-                <a href="{{ url_for('blocks') }}" class="hover:underline">Blocks</a>
-                <a href="{{ url_for('history') }}" class="hover:underline">History</a>
-                <a href="{{ url_for('verify_transaction_page') }}" class="hover:underline">Verify Transaction</a>
+<body>
+    <!-- Background Accents -->
+    <div class="fixed top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/20 blur-[120px] rounded-full -z-10"></div>
+    <div class="fixed bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-purple-900/20 blur-[120px] rounded-full -z-10">
+    </div>
+
+    <!-- Navigation -->
+    <nav class="sticky top-0 z-50 glass-panel mt-4 mx-4 px-6 py-4 flex justify-between items-center">
+        <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 glow-button rounded-xl flex items-center justify-center">
+                <i class="fas fa-cube text-white text-xl"></i>
             </div>
+            <div>
+                <h1
+                    class="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">
+                    BLOCKCHAIN
+                </h1>
+                <p class="text-[10px] uppercase tracking-widest text-gray-500 font-semibold">Decentralized Protocol</p>
+            </div>
+        </div>
+
+        <div class="hidden md:flex items-center space-x-10 text-sm font-medium text-gray-300">
+            <a href="{{ url_for('index') }}" class="nav-link hover:text-white">Dashboard</a>
+            <a href="{{ url_for('blocks') }}" class="nav-link hover:text-white">Explorer</a>
+            <a href="{{ url_for('history') }}" class="nav-link hover:text-white">Assets</a>
+            <a href="{{ url_for('verify_transaction_page') }}" class="nav-link hover:text-white">Security</a>
+        </div>
+
+        <div class="flex items-center space-x-4">
+            <button
+                class="hidden sm:flex items-center space-x-2 text-xs text-gray-400 hover:text-white transition-colors">
+                <i class="fas fa-circle text-[8px] text-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"></i>
+                <span class="font-mono">Mainnet Active</span>
+            </button>
+            <a href="/wallet" class="glow-button px-5 py-2.5 rounded-xl text-sm font-bold text-white">
+                Launch App
+            </a>
         </div>
     </nav>
 
-    <main class="container mx-auto p-4">
+    <!-- Main Content -->
+    <main class="container mx-auto py-10 px-4 md:px-0">
         {% block content %}{% endblock %}
     </main>
+
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
+
+    <!-- Footer -->
+    <footer
+        class="container mx-auto mt-20 pb-10 border-t border-gray-800 pt-8 flex flex-col md:flex-row justify-between items-center text-gray-500 text-sm">
+        <p>&copy; 2025 Blockchain Protocol. Built for the Future.</p>
+        <div class="flex space-x-6 mt-4 md:mt-0">
+            <a href="#" class="hover:text-blue-400 transition-colors"><i class="fab fa-github"></i> Source</a>
+            <a href="#" class="hover:text-blue-400 transition-colors"><i class="fas fa-book"></i> Docs</a>
+            <a href="#" class="hover:text-blue-400 transition-colors"><i class="fas fa-shield-alt"></i> Security</a>
+        </div>
+    </footer>
 
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     {% block scripts %}{% endblock %}

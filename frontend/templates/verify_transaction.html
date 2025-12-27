@@ -1,261 +1,286 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="max-w-6xl mx-auto py-8 px-4">
-    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-        <h1 class="text-2xl font-bold text-gray-800 mb-6">Verify Transaction</h1>
-        
-        <form id="verifyForm" class="space-y-6">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- Transaction Inputs -->
-                <div class="space-y-4">
-                    <h2 class="text-xl font-semibold text-gray-700">Transaction Inputs</h2>
-                    <div id="inputsContainer">
-                        <div class="input-group p-4 border rounded-lg mb-4">
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Previous Transaction Hash</label>
-                                <input type="text" name="prev_tx" class="w-full px-3 py-2 border rounded-md" placeholder="Previous transaction hash" required>
-                            </div>
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Output Index</label>
-                                <input type="number" name="prev_index" class="w-full px-3 py-2 border rounded-md" value="0" required>
-                            </div>
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Signature Script (comma-separated)</label>
-                                <input type="text" name="script_sig" class="w-full px-3 py-2 border rounded-md" placeholder="signature,public_key" required>
-                            </div>
-                        </div>
-                    </div>
-                    <button type="button" onclick="addInput()" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
-                        Add Input
+<div class="max-w-6xl mx-auto space-y-8 animate-fade-in">
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+        <div>
+            <h1 class="text-3xl font-bold">Transaction Security</h1>
+            <p class="text-gray-400">Verify integrity and cryptographic signatures of any transaction</p>
+        </div>
+        <div class="flex items-center space-x-3">
+            <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Verification Engine</span>
+            <div
+                class="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center space-x-2">
+                <i class="fas fa-check-circle text-emerald-400 text-[10px]"></i>
+                <span class="text-[10px] text-emerald-400 font-bold uppercase">v2.0 Active</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Verification Form -->
+    <form id="verifyForm" class="space-y-8">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- Left Column: Inputs -->
+            <div class="space-y-6">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-lg font-bold flex items-center">
+                        <i class="fas fa-sign-in-alt mt-1 mr-3 text-blue-400"></i>
+                        Transaction Inputs (Vin)
+                    </h2>
+                    <button type="button" onclick="addInput()"
+                        class="text-[10px] font-bold uppercase tracking-widest text-blue-400 hover:text-blue-300 transition-colors bg-blue-400/10 px-3 py-1.5 rounded-lg border border-blue-400/20">
+                        <i class="fas fa-plus mr-1"></i> Add Input
                     </button>
                 </div>
 
-                <!-- Transaction Outputs -->
-                <div class="space-y-4">
-                    <h2 class="text-xl font-semibold text-gray-700">Transaction Outputs</h2>
-                    <div id="outputsContainer">
-                        <div class="output-group p-4 border rounded-lg mb-4">
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Amount (satoshis)</label>
-                                <input type="number" name="amount" class="w-full px-3 py-2 border rounded-md" placeholder="Amount" required>
+                <div id="inputsContainer" class="space-y-4">
+                    <!-- Default Input #1 -->
+                    <div
+                        class="glass-panel p-6 border-t border-white/5 relative group transition-all hover:border-blue-500/30">
+                        <div class="flex justify-between items-center mb-6">
+                            <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Input #1</span>
+                            <i class="fas fa-lock text-gray-600 text-[10px]"></i>
+                        </div>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-[10px] font-bold text-gray-500 uppercase mb-2">Prev Transaction
+                                    Hash</label>
+                                <input type="text" name="prev_tx" required placeholder="0000..."
+                                    value="0000000000000000000000000000000000000000000000000000000000000000"
+                                    class="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-mono focus:outline-none focus:border-blue-500 transition-colors">
                             </div>
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Locking Script (comma-separated OP_CODES)</label>
-                                <input type="text" name="script_pubkey" class="w-full px-3 py-2 border rounded-md" placeholder="OP_DUP,OP_HASH160,pubkey_hash,OP_EQUALVERIFY,OP_CHECKSIG" required>
+                            <div class="grid grid-cols-3 gap-4">
+                                <div class="col-span-1">
+                                    <label
+                                        class="block text-[10px] font-bold text-gray-500 uppercase mb-2">Index</label>
+                                    <input type="number" name="prev_index" required value="0"
+                                        class="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-mono focus:outline-none focus:border-blue-500 transition-colors">
+                                </div>
+                                <div class="col-span-2">
+                                    <label class="block text-[10px] font-bold text-gray-500 uppercase mb-2">Signature
+                                        Script (sig, pubkey)</label>
+                                    <input type="text" name="script_sig" required placeholder="signature, public_key"
+                                        class="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-mono focus:outline-none focus:border-blue-500 transition-colors">
+                                </div>
                             </div>
                         </div>
                     </div>
-                    <button type="button" onclick="addOutput()" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
-                        Add Output
+                </div>
+            </div>
+
+            <!-- Right Column: Outputs -->
+            <div class="space-y-6">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-lg font-bold flex items-center">
+                        <i class="fas fa-sign-out-alt mt-1 mr-3 text-purple-400"></i>
+                        Transaction Outputs (Vout)
+                    </h2>
+                    <button type="button" onclick="addOutput()"
+                        class="text-[10px] font-bold uppercase tracking-widest text-purple-400 hover:text-purple-300 transition-colors bg-purple-400/10 px-3 py-1.5 rounded-lg border border-purple-400/20">
+                        <i class="fas fa-plus mr-1"></i> Add Output
                     </button>
                 </div>
-            </div>
 
-            <!-- UTXO Set (simplified for demo) -->
-            <div class="mt-8">
-                <h2 class="text-xl font-semibold text-gray-700 mb-4">UTXO Set (for verification)</h2>
-                <div id="utxoContainer" class="space-y-4">
-                    <!-- Will be populated by JavaScript -->
+                <div id="outputsContainer" class="space-y-4">
+                    <!-- Default Output #1 -->
+                    <div
+                        class="glass-panel p-6 border-t border-white/5 relative group transition-all hover:border-purple-500/30">
+                        <div class="flex justify-between items-center mb-6">
+                            <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Output #1</span>
+                            <i class="fas fa-coins text-gray-600 text-[10px]"></i>
+                        </div>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-[10px] font-bold text-gray-500 uppercase mb-2">Amount
+                                    (Satoshi)</label>
+                                <div class="relative">
+                                    <input type="number" name="amount" required placeholder="5000000000"
+                                        class="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-mono focus:outline-none focus:border-purple-500 transition-colors">
+                                    <span
+                                        class="absolute right-4 top-2.5 text-[10px] font-bold text-gray-600 uppercase">ATH</span>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-gray-500 uppercase mb-2">Locking Script
+                                    (OP_CODES)</label>
+                                <input type="text" name="script_pubkey" required
+                                    placeholder="OP_DUP, OP_HASH160, ..., OP_CHECKSIG"
+                                    class="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-mono focus:outline-none focus:border-purple-500 transition-colors">
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
+        </div>
 
-            <div class="mt-8">
-                <button type="submit" class="w-full md:w-auto px-6 py-3 bg-green-600 text-white font-medium rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
-                    Verify Transaction
-                </button>
-            </div>
-        </form>
+        <!-- Submit Section -->
+        <div class="flex flex-col items-center justify-center space-y-4 pt-10">
+            <button type="submit"
+                class="glow-button px-12 py-4 rounded-2xl text-lg font-bold text-white transition-all transform hover:scale-105 active:scale-95">
+                Execute Verification
+            </button>
+            <p class="text-xs text-gray-500 flex items-center space-x-2">
+                <i class="fas fa-microchip"></i>
+                <span>Nodes will compute ECDSA validation in real-time</span>
+            </p>
+        </div>
+    </form>
 
-        <!-- Results Section -->
-        <div id="results" class="mt-8 p-4 border rounded-lg hidden">
-            <h2 class="text-xl font-semibold text-gray-700 mb-4">Verification Results</h2>
-            <div id="verificationResult" class="p-4 rounded-md">
-                <!-- Results will be displayed here -->
-            </div>
+    <!-- Results Section -->
+    <div id="results" class="hidden animate-fade-in">
+        <div id="verificationResult" class="glass-panel p-8 text-center space-y-4 border-2">
+            <!-- JS Inject here -->
         </div>
     </div>
 </div>
 
 <script>
-    // Function to add a new input field group
     function addInput() {
         const container = document.getElementById('inputsContainer');
-        const newInput = `
-            <div class="input-group p-4 border rounded-lg mb-4">
-                <div class="flex justify-between items-center mb-2">
-                    <h3 class="text-md font-medium">Input #${container.children.length + 1}</h3>
-                    <button type="button" onclick="this.parentElement.parentElement.remove()" class="text-red-600 hover:text-red-800">
-                        Remove
+        const count = container.children.length + 1;
+        const html = `
+            <div class="glass-panel p-6 border-t border-white/5 relative group transition-all hover:border-blue-500/30 animate-fade-in">
+                <div class="flex justify-between items-center mb-6">
+                    <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Input #${count}</span>
+                    <button type="button" onclick="this.closest('.glass-panel').remove()" class="text-gray-600 hover:text-red-400 transition-colors">
+                        <i class="fas fa-times text-[10px]"></i>
                     </button>
                 </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Previous Transaction Hash</label>
-                    <input type="text" name="prev_tx" class="w-full px-3 py-2 border rounded-md" placeholder="Previous transaction hash" required>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-500 uppercase mb-2">Prev Transaction Hash</label>
+                        <input type="text" name="prev_tx" required placeholder="0000..."
+                               class="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-mono focus:outline-none focus:border-blue-500 transition-colors">
+                    </div>
+                    <div class="grid grid-cols-3 gap-4">
+                        <div class="col-span-1">
+                            <label class="block text-[10px] font-bold text-gray-500 uppercase mb-2">Index</label>
+                            <input type="number" name="prev_index" required value="0"
+                                   class="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-mono focus:outline-none focus:border-blue-500 transition-colors">
+                        </div>
+                        <div class="col-span-2">
+                            <label class="block text-[10px] font-bold text-gray-500 uppercase mb-2">Signature Script</label>
+                            <input type="text" name="script_sig" required placeholder="signature, public_key"
+                                   class="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-mono focus:outline-none focus:border-blue-500 transition-colors">
+                        </div>
+                    </div>
                 </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Output Index</label>
-                    <input type="number" name="prev_index" class="w-full px-3 py-2 border rounded-md" value="0" required>
-                </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Signature Script (comma-separated)</label>
-                    <input type="text" name="script_sig" class="w-full px-3 py-2 border rounded-md" placeholder="signature,public_key" required>
-                </div>
-            </div>
-        `;
-        container.insertAdjacentHTML('beforeend', newInput);
+            </div>`;
+        container.insertAdjacentHTML('beforeend', html);
     }
 
-    // Function to add a new output field group
     function addOutput() {
         const container = document.getElementById('outputsContainer');
-        const newOutput = `
-            <div class="output-group p-4 border rounded-lg mb-4">
-                <div class="flex justify-between items-center mb-2">
-                    <h3 class="text-md font-medium">Output #${container.children.length + 1}</h3>
-                    <button type="button" onclick="this.parentElement.parentElement.remove()" class="text-red-600 hover:text-red-800">
-                        Remove
+        const count = container.children.length + 1;
+        const html = `
+            <div class="glass-panel p-6 border-t border-white/5 relative group transition-all hover:border-purple-500/30 animate-fade-in">
+                <div class="flex justify-between items-center mb-6">
+                    <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Output #${count}</span>
+                    <button type="button" onclick="this.closest('.glass-panel').remove()" class="text-gray-600 hover:text-red-400 transition-colors">
+                        <i class="fas fa-times text-[10px]"></i>
                     </button>
                 </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Amount (satoshis)</label>
-                    <input type="number" name="amount" class="w-full px-3 py-2 border rounded-md" placeholder="Amount" required>
-                </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Locking Script (comma-separated OP_CODES)</label>
-                    <input type="text" name="script_pubkey" class="w-full px-3 py-2 border rounded-md" placeholder="OP_DUP,OP_HASH160,pubkey_hash,OP_EQUALVERIFY,OP_CHECKSIG" required>
-                </div>
-            </div>
-        `;
-        container.insertAdjacentHTML('beforeend', newOutput);
-    }
-
-    // Function to update UTXO preview
-    function updateUtxoPreview() {
-        const inputs = document.querySelectorAll('#inputsContainer .input-group');
-        const utxoContainer = document.getElementById('utxoContainer');
-        let utxoHtml = '';
-
-        inputs.forEach((input, index) => {
-            const prevTx = input.querySelector('input[name="prev_tx"]').value;
-            const prevIndex = input.querySelector('input[name="prev_index"]').value;
-            
-            if (prevTx) {
-                utxoHtml += `
-                    <div class="p-3 border rounded-md bg-gray-50">
-                        <div class="font-medium">UTXO #${index + 1}</div>
-                        <div class="text-sm text-gray-600">Tx: ${prevTx.substring(0, 20)}... (Index: ${prevIndex})</div>
-                        <input type="hidden" name="utxo_${prevTx}_${prevIndex}" value="1">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-500 uppercase mb-2">Amount (Satoshi)</label>
+                        <div class="relative">
+                            <input type="number" name="amount" required placeholder="5000000000"
+                                   class="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-mono focus:outline-none focus:border-purple-500 transition-colors">
+                            <span class="absolute right-4 top-2.5 text-[10px] font-bold text-gray-600 uppercase">ATH</span>
+                        </div>
                     </div>
-                `;
-            }
-        });
-
-        utxoContainer.innerHTML = utxoHtml || '<p class="text-gray-500">Add transaction inputs to see UTXOs</p>';
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-500 uppercase mb-2">Locking Script</label>
+                        <input type="text" name="script_pubkey" required placeholder="OP_DUP, OP_HASH160, ..., OP_CHECKSIG"
+                               class="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-mono focus:outline-none focus:border-purple-500 transition-colors">
+                    </div>
+                </div>
+            </div>`;
+        container.insertAdjacentHTML('beforeend', html);
     }
 
-    // Add event listeners for input changes
-    document.addEventListener('DOMContentLoaded', function() {
-        // Update UTXO preview when inputs change
-        document.getElementById('inputsContainer').addEventListener('input', function(e) {
-            if (e.target.matches('input[name="prev_tx"], input[name="prev_index"]')) {
-                updateUtxoPreview();
-            }
-        });
+    document.getElementById('verifyForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
 
-        // Form submission
-        document.getElementById('verifyForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            // Collect form data
-            const formData = {
-                version: 1,  // Default version
-                tx_ins: [],
-                tx_outs: [],
-                utxo_set: {},
-                locktime: 0  // Default locktime
+        const formData = { version: 1, tx_ins: [], tx_outs: [], utxo_set: {}, locktime: 0 };
+
+        document.querySelectorAll('#inputsContainer .glass-panel').forEach(group => {
+            const prevTx = group.querySelector('[name="prev_tx"]').value;
+            const prevIndex = parseInt(group.querySelector('[name="prev_index"]').value);
+            const scriptSig = group.querySelector('[name="script_sig"]').value.split(',').map(s => s.trim());
+
+            formData.tx_ins.push({ prev_tx: prevTx, prev_index: prevIndex, script_sig: scriptSig, sequence: 0xffffffff });
+            formData.utxo_set[prevTx] = formData.utxo_set[prevTx] || {};
+            formData.utxo_set[prevTx][prevIndex] = {
+                amount: 1000000,
+                script_pubkey: ["OP_DUP", "OP_HASH160", "pubkey_hash", "OP_EQUALVERIFY", "OP_CHECKSIG"]
             };
-
-            // Collect inputs
-            document.querySelectorAll('#inputsContainer .input-group').forEach(inputGroup => {
-                const prevTx = inputGroup.querySelector('input[name="prev_tx"]').value;
-                const prevIndex = parseInt(inputGroup.querySelector('input[name="prev_index"]').value);
-                const scriptSig = inputGroup.querySelector('input[name="script_sig"]').value.split(',');
-                
-                formData.tx_ins.push({
-                    prev_tx: prevTx,
-                    prev_index: prevIndex,
-                    script_sig: scriptSig,
-                    sequence: 0xffffffff
-                });
-
-                // Add to UTXO set (simplified for demo)
-                formData.utxo_set[prevTx] = formData.utxo_set[prevTx] || {};
-                formData.utxo_set[prevTx][prevIndex] = {
-                    amount: 1000000,  // Default amount for demo
-                    script_pubkey: ["OP_DUP", "OP_HASH160", "pubkey_hash", "OP_EQUALVERIFY", "OP_CHECKSIG"]
-                };
-            });
-
-            // Collect outputs
-            document.querySelectorAll('#outputsContainer .output-group').forEach(outputGroup => {
-                const amount = parseInt(outputGroup.querySelector('input[name="amount"]').value);
-                const scriptPubkey = outputGroup.querySelector('input[name="script_pubkey"]').value.split(',');
-                
-                formData.tx_outs.push({
-                    amount: amount,
-                    script_pubkey: scriptPubkey
-                });
-            });
-
-            // Send verification request
-            fetch('/api/transaction/verify', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(formData)
-            })
-            .then(response => response.json())
-            .then(data => {
-                const resultDiv = document.getElementById('verificationResult');
-                const resultsSection = document.getElementById('results');
-                
-                if (data.success && data.valid) {
-                    resultDiv.innerHTML = `
-                        <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative" role="alert">
-                            <strong class="font-bold">Verification Successful!</strong>
-                            <span class="block sm:inline"> Transaction is valid.</span>
-                            ${data.txid ? `<div class="mt-2">Transaction ID: <code class="bg-gray-100 p-1 rounded">${data.txid}</code></div>` : ''}
-                        </div>
-                    `;
-                } else {
-                    resultDiv.innerHTML = `
-                        <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
-                            <strong class="font-bold">Verification Failed!</strong>
-                            <span class="block sm:inline"> ${data.error || 'Transaction is invalid.'}</span>
-                        </div>
-                    `;
-                }
-                
-                resultsSection.classList.remove('hidden');
-                resultsSection.scrollIntoView({ behavior: 'smooth' });
-            })
-            .catch((error) => {
-                console.error('Error:', error);
-                const resultDiv = document.getElementById('verificationResult');
-                resultDiv.innerHTML = `
-                    <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
-                        <strong class="font-bold">Error!</strong>
-                        <span class="block sm:inline"> ${error.message || 'Failed to verify transaction.'}</span>
-                    </div>
-                `;
-                document.getElementById('results').classList.remove('hidden');
-            });
         });
 
-        // Initialize UTXO preview
-        updateUtxoPreview();
+        document.querySelectorAll('#outputsContainer .glass-panel').forEach(group => {
+            const amount = parseInt(group.querySelector('[name="amount"]').value);
+            const scriptPubkey = group.querySelector('[name="script_pubkey"]').value.split(',').map(s => s.trim());
+            formData.tx_outs.push({ amount, script_pubkey: scriptPubkey });
+        });
+
+        try {
+            const response = await fetch('/api/transaction/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(formData)
+            });
+            const data = await response.json();
+
+            const resultsDiv = document.getElementById('results');
+            const inner = document.getElementById('verificationResult');
+
+            resultsDiv.classList.remove('hidden');
+
+            if (data.success && data.valid) {
+                inner.className = "glass-panel p-8 text-center space-y-4 border-emerald-500/50 bg-emerald-500/5";
+                inner.innerHTML = `
+                    <div class="w-16 h-16 rounded-full bg-emerald-500 mx-auto flex items-center justify-center text-white text-3xl shadow-[0_0_20px_rgba(16,185,129,0.5)]">
+                        <i class="fas fa-check"></i>
+                    </div>
+                    <h2 class="text-2xl font-bold text-emerald-400">Transaction Validated</h2>
+                    <p class="text-gray-400">The cryptographic signature matches and all consensus rules are satisfied.</p>
+                    <div class="pt-4 flex justify-center">
+                        <div class="bg-black/30 px-6 py-3 rounded-xl border border-white/10">
+                            <p class="text-[10px] text-gray-500 uppercase font-bold mb-1">Generated TxID</p>
+                            <code class="text-blue-400 font-mono text-xs">${data.txid}</code>
+                        </div>
+                    </div>`;
+            } else {
+                inner.className = "glass-panel p-8 text-center space-y-4 border-red-500/50 bg-red-500/5";
+                inner.innerHTML = `
+                    <div class="w-16 h-16 rounded-full bg-red-500 mx-auto flex items-center justify-center text-white text-3xl shadow-[0_0_20px_rgba(239,68,68,0.5)]">
+                        <i class="fas fa-times"></i>
+                    </div>
+                    <h2 class="text-2xl font-bold text-red-400">Verification Rejected</h2>
+                    <p class="text-gray-400">${data.error || 'The transaction data failed cryptographic integrity checks or satisfies no consensus path.'}</p>`;
+            }
+            resultsDiv.scrollIntoView({ behavior: 'smooth' });
+        } catch (error) {
+            console.error(error);
+        }
     });
 </script>
+
+<style>
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .animate-fade-in {
+        animation: fadeIn 0.8s ease-out forwards;
+    }
+</style>
 {% endblock %}

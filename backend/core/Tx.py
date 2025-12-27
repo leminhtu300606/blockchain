@@ -108,11 +108,29 @@ class Script:
     def serialize(self) -> bytes:
         """
         Serialize script thành bytes.
-        
-        Note: Đây là phiên bản đơn giản. Trong Bitcoin thực, 
-        mỗi opcode và data element có format riêng.
         """
-        return str(self.cmds).encode('utf-8')
+        result = bytearray()
+        for cmd in self.cmds:
+            if isinstance(cmd, int):
+                result.append(cmd)
+            elif isinstance(cmd, bytes):
+                result.extend(encode_varint(len(cmd)))
+                result.extend(cmd)
+            elif isinstance(cmd, str):
+                # Giả định string là hex hoặc opcode
+                if cmd.startswith('OP_'):
+                    # Đây là opcode (giản lược cho demo)
+                    result.append(0x61) # Placeholder cho opcode
+                else:
+                    try:
+                        b = bytes.fromhex(cmd)
+                        result.extend(encode_varint(len(b)))
+                        result.extend(b)
+                    except ValueError:
+                        b = cmd.encode('utf-8')
+                        result.extend(encode_varint(len(b)))
+                        result.extend(b)
+        return bytes(result)
 
 
 # =============================================================================
@@ -172,10 +190,17 @@ class TxIn:
         
     def to_dict(self) -> dict:
         """Chuyển đổi thành dictionary để serialize."""
+        cmds = []
+        for cmd in self.script_sig.cmds:
+            if isinstance(cmd, bytes):
+                cmds.append(cmd.hex())
+            else:
+                cmds.append(cmd)
+                
         return {
             'prev_tx': self.prev_tx,
             'prev_index': self.prev_index,
-            'script_sig': self.script_sig.cmds if self.script_sig else [],
+            'script_sig': cmds,
             'sequence': self.sequence
         }
 
@@ -218,9 +243,16 @@ class TxOut:
         
     def to_dict(self) -> dict:
         """Chuyển đổi thành dictionary để serialize."""
+        cmds = []
+        for cmd in self.script_pubkey.cmds:
+            if isinstance(cmd, bytes):
+                cmds.append(cmd.hex())
+            else:
+                cmds.append(cmd)
+
         return {
             'amount': self.amount,
-            'script_pubkey': self.script_pubkey.cmds if self.script_pubkey else []
+            'script_pubkey': cmds
         }
 
 

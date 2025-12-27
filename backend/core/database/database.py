@@ -263,7 +263,7 @@ class BlockchainDB(BaseDB):
         """
         Chuẩn hóa block data về format chuẩn.
         
-        Chuyển đổi từ text file format sang program format.
+        Hỗ trợ cả format cũ (text file) và format mới (JSON từ blockchain.py).
         
         Args:
             raw_block: Block data đọc từ file
@@ -271,7 +271,24 @@ class BlockchainDB(BaseDB):
         Returns:
             Dict với format chuẩn
         """
-        # Parse timestamp
+        # Kiểm tra xem đây là format mới hay cũ
+        if 'Blockheader' in raw_block:
+            # Format mới - đã chuẩn, chỉ cần đảm bảo các field tồn tại
+            blockheader = raw_block.get('Blockheader', {})
+            return {
+                'Height': int(raw_block.get('Height', 0)),
+                'Blockheader': {
+                    'blockhash': blockheader.get('blockhash', ''),
+                    'previous_block_hash': blockheader.get('previous_block_hash', ''),
+                    'timestamp': blockheader.get('timestamp', 0),
+                    'bits': blockheader.get('bits', DEFAULT_BITS),
+                    'nonce': int(blockheader.get('nonce', 0))
+                },
+                'Txcount': int(raw_block.get('Txcount', 0)),
+                'Txs': raw_block.get('Txs', [])
+            }
+        
+        # Format cũ (text file) - cần chuyển đổi
         timestamp = 0
         if 'Timestamp' in raw_block:
             try:
@@ -292,6 +309,7 @@ class BlockchainDB(BaseDB):
             'Txcount': int(raw_block.get('Transactions', 0)),
             'Txs': raw_block.get('Txs', [])
         }
+
 
 
 class BalanceDB(BaseDB):

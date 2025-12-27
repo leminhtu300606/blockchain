@@ -53,9 +53,15 @@ ZERO_HASH = "0" * 64                    # 32 bytes zeros (hex)
 VERSION = 1                              # Block version
 INITIAL_SUBSIDY = 50 * (10 ** 8)        # 50 BTC in satoshis
 HALVING_INTERVAL = 210_000               # Blocks between halvings
-DEFAULT_DIFFICULTY = '1d00ffff'          # Easy difficulty for testing
-DIFFICULTY_ADJUSTMENT_INTERVAL = 10      # Adjust every 10 blocks (demo)
-TARGET_BLOCK_TIME = 60                   # 1 minute per block (demo)
+# Độ khó hố đen (Cực dễ cho Genesis - Admin khởi tạo)
+GENESIS_DIFFICULTY = '20ffffff' 
+
+# Độ khó tiêu chuẩn (Cho User - Cần tính toán thực sự)
+DEFAULT_DIFFICULTY = '1e00ffff' 
+
+# Các hằng số điều chỉnh
+DIFFICULTY_ADJUSTMENT_INTERVAL = 10      # Điều chỉnh sau mỗi 10 blocks
+TARGET_BLOCK_TIME = 60                   # Mục tiêu 1 phút/block
 MAX_TARGET = 0x0000ffff00000000000000000000000000000000000000000000000000000000
 
 
@@ -115,7 +121,8 @@ class Blockchain:
         logger.info("Creating Genesis block...")
         self.add_block(
             block_height=0, 
-            previous_hash=ZERO_HASH
+            previous_hash=ZERO_HASH,
+            bits=GENESIS_DIFFICULTY
         )
         logger.info("Genesis block created successfully")
     
@@ -269,7 +276,7 @@ class Blockchain:
     # ADD BLOCK
     # =========================================================================
     
-    def add_block(self, block_height: int, previous_hash: str) -> None:
+    def add_block(self, block_height: int, previous_hash: str, bits: Optional[str] = None) -> None:
         """
         Tạo và thêm block mới vào blockchain.
         
@@ -301,8 +308,9 @@ class Blockchain:
         merkle_root = self._calculate_merkle_root(tx_hashes)
         
         # 4. Xác định difficulty (bits)
-        last_block = self.db.lastBlock()
-        bits = self.calculate_next_bits(last_block) if last_block else DEFAULT_DIFFICULTY
+        if not bits:
+            last_block = self.db.lastBlock()
+            bits = self.calculate_next_bits(last_block) if last_block else DEFAULT_DIFFICULTY
         
         # 5. Tạo block header
         blockheader = BlockHeader(

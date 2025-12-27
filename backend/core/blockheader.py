@@ -112,6 +112,16 @@ class BlockHeader:
         self._header_prefix: Optional[str] = None
     
     # =========================================================================
+    # CALCULATION METHODS
+    # =========================================================================
+    
+    def calculate_target(self) -> int:
+        """
+        Tính toán target numerical từ compact bits.
+        """
+        return self.bits_to_target(self.bits)
+
+    # =========================================================================
     # MINING METHODS
     # =========================================================================
     
