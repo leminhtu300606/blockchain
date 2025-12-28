@@ -1,3 +1,0 @@
-bit==0.8.0
-cryptography==41.0.2
-ecdsa==0.18.0

@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bitcoin Blockchain Explorer</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <span class="logo-icon">₿</span>
+                <span class="logo-text">Blockchain</span>
+            </div>
+            <nav class="nav">
+                <a href="#" class="nav-item active" data-page="dashboard">
+                    <span class="nav-icon">📊</span>
+                    Dashboard
+                </a>
+                <a href="#" class="nav-item" data-page="wallet">
+                    <span class="nav-icon">👛</span>
+                    Ví
+                </a>
+                <a href="#" class="nav-item" data-page="send">
+                    <span class="nav-icon">💸</span>
+                    Gửi BTC
+                </a>
+                <a href="#" class="nav-item" data-page="blocks">
+                    <span class="nav-icon">⛓️</span>
+                    Blocks
+                </a>
+                <a href="#" class="nav-item" data-page="mine">
+                    <span class="nav-icon">⛏️</span>
+                    Đào Block
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main">
+            <!-- Dashboard Page -->
+            <section id="page-dashboard" class="page active">
+                <h1 class="page-title">Dashboard</h1>
+                
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">⛓️</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="total-blocks">0</span>
+                            <span class="stat-label">Tổng Blocks</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">📦</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="latest-height">#0</span>
+                            <span class="stat-label">Block Mới Nhất</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">⏳</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="mempool-size">0</span>
+                            <span class="stat-label">Mempool</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🎯</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="difficulty">-</span>
+                            <span class="stat-label">Difficulty</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2 class="card-title">Blocks Gần Đây</h2>
+                    <div class="table-container">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Height</th>
+                                    <th>Hash</th>
+                                    <th>Giao dịch</th>
+                                    <th>Thời gian</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recent-blocks">
+                                <tr><td colspan="4" class="loading">Đang tải...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Wallet Page -->
+            <section id="page-wallet" class="page">
+                <h1 class="page-title">Quản Lý Ví</h1>
+                
+                <div class="card-grid">
+                    <div class="card">
+                        <h2 class="card-title">🆕 Tạo Ví Mới</h2>
+                        <p class="card-desc">Tạo một ví Bitcoin mới với Private Key ngẫu nhiên.</p>
+                        <button class="btn btn-primary" id="btn-create-wallet">Tạo Ví</button>
+                        
+                        <div id="new-wallet-result" class="result-box hidden">
+                            <div class="result-item">
+                                <label>🔐 Private Key:</label>
+                                <code id="new-private-key"></code>
+                            </div>
+                            <div class="result-item">
+                                <label>🔑 Public Key:</label>
+                                <code id="new-public-key"></code>
+                            </div>
+                            <div class="result-item">
+                                <label>📬 Địa chỉ:</label>
+                                <code id="new-address"></code>
+                            </div>
+                            <p class="warning">⚠️ Hãy lưu Private Key ở nơi an toàn!</p>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <h2 class="card-title">💰 Kiểm Tra Số Dư</h2>
+                        <p class="card-desc">Nhập địa chỉ hoặc pubkey hash để xem số dư.</p>
+                        <div class="form-group">
+                            <input type="text" id="balance-address" class="input" placeholder="Địa chỉ ví...">
+                        </div>
+                        <button class="btn btn-primary" id="btn-check-balance">Kiểm Tra</button>
+                        
+                        <div id="balance-result" class="result-box hidden">
+                            <div class="balance-display">
+                                <span class="balance-value" id="balance-value">0</span>
+                                <span class="balance-unit">satoshi</span>
+                            </div>
+                            <div class="balance-btc" id="balance-btc">≈ 0 BTC</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Send Page -->
+            <section id="page-send" class="page">
+                <h1 class="page-title">Gửi BTC</h1>
+                
+                <div class="card">
+                    <h2 class="card-title">💸 Tạo Giao Dịch</h2>
+                    
+                    <form id="send-form">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>📬 Địa chỉ người nhận</label>
+                                <input type="text" id="send-recipient" class="input" placeholder="Pubkey hash..." required>
+                            </div>
+                            <div class="form-group">
+                                <label>💰 Số tiền (satoshi)</label>
+                                <input type="number" id="send-amount" class="input" placeholder="100000" required>
+                            </div>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>🔗 TXID nguồn (để trống = demo)</label>
+                                <input type="text" id="send-prev-txid" class="input" placeholder="Transaction ID...">
+                            </div>
+                            <div class="form-group">
+                                <label>📍 Địa chỉ bạn</label>
+                                <input type="text" id="send-sender" class="input" placeholder="Pubkey hash của bạn...">
+                            </div>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary btn-large">
+                            <span>🚀</span> Gửi Giao Dịch
+                        </button>
+                    </form>
+                    
+                    <div id="send-result" class="result-box hidden">
+                        <h3>✅ Giao dịch đã tạo!</h3>
+                        <div class="result-item">
+                            <label>TXID:</label>
+                            <code id="send-txid"></code>
+                        </div>
+                        <p class="info">📝 Giao dịch đang chờ trong Mempool. Đào block mới để xác nhận.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Blocks Page -->
+            <section id="page-blocks" class="page">
+                <h1 class="page-title">Block Explorer</h1>
+                
+                <div class="card">
+                    <h2 class="card-title">🔍 Tìm Block Theo Height</h2>
+                    <div class="search-row">
+                        <input type="number" id="search-height" class="input" placeholder="Block height...">
+                        <button class="btn btn-primary" id="btn-search-block">Tìm</button>
+                    </div>
+                </div>
+                
+                <div id="block-detail" class="card hidden">
+                    <h2 class="card-title">📦 Chi Tiết Block #<span id="block-height"></span></h2>
+                    <div class="block-info">
+                        <div class="info-row">
+                            <span class="info-label">Hash:</span>
+                            <code id="block-hash"></code>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Previous:</span>
+                            <code id="block-prev"></code>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Merkle Root:</span>
+                            <code id="block-merkle"></code>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Timestamp:</span>
+                            <span id="block-time"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Nonce:</span>
+                            <span id="block-nonce"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Transactions:</span>
+                            <span id="block-txcount"></span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Mine Page -->
+            <section id="page-mine" class="page">
+                <h1 class="page-title">Đào Block</h1>
+                
+                <div class="card mine-card">
+                    <div class="mine-icon">⛏️</div>
+                    <h2 class="card-title">Đào Block Mới</h2>
+                    <p class="card-desc">
+                        Nhấn nút bên dưới để đào block mới và nhận phần thưởng 50 BTC.
+                        <br>Các giao dịch trong Mempool sẽ được đưa vào block.
+                    </p>
+                    
+                    <button class="btn btn-success btn-large" id="btn-mine">
+                        <span>⛏️</span> Bắt Đầu Đào
+                    </button>
+                    
+                    <div id="mine-result" class="result-box hidden">
+                        <h3>🎉 Đào thành công!</h3>
+                        <div class="mine-stats">
+                            <div class="mine-stat">
+                                <span class="mine-stat-value" id="mine-height">#0</span>
+                                <span class="mine-stat-label">Block Height</span>
+                            </div>
+                            <div class="mine-stat">
+                                <span class="mine-stat-value" id="mine-time">0s</span>
+                                <span class="mine-stat-label">Thời gian</span>
+                            </div>
+                            <div class="mine-stat">
+                                <span class="mine-stat-value" id="mine-reward">50 BTC</span>
+                                <span class="mine-stat-label">Phần thưởng</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast hidden">
+        <span id="toast-message"></span>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
