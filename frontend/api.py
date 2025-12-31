@@ -98,9 +98,12 @@ def import_wallet():
 def get_balance(address):
     """Lấy số dư của địa chỉ."""
     try:
-        balance_db = BalanceDB()
-        balance = balance_db.get_latest_balance(address)
-        history = balance_db.get_history(address)
+        from core.database.database import UTXOSet
+        utxo_set = UTXOSet()
+        balance = utxo_set.get_balance(address)
+        
+        # UTXO model doesn't easily support history without an indexer
+        # For now, we return current balance
         
         return jsonify({
             'success': True,
@@ -108,7 +111,7 @@ def get_balance(address):
                 'address': address,
                 'balance': balance,
                 'balanceBTC': balance / (10 ** 8),
-                'history': history[-10:]  # 10 bản ghi gần nhất
+                'history': [] 
             }
         })
     except Exception as e:

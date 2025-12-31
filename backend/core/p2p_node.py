@@ -59,7 +59,10 @@ class P2PNode:
         if msg_type == 'NEW_BLOCK':
             logger.info(f"Received new block from {addr}")
             # Logic: verify and add block to chain
-            pass
+            if self.blockchain.receive_block(payload):
+                 logger.info(f"Block accepted and added to chain")
+            else:
+                 logger.warning(f"Block rejected")
         elif msg_type == 'NEW_TX':
             logger.info(f"Received new transaction from {addr}")
             # Logic: verify and add to mempool

@@ -312,58 +312,65 @@ class BlockchainDB(BaseDB):
 
 
 
-class BalanceDB(BaseDB):
+class UTXOSet(BaseDB):
     """
-    Balance Database - Quản lý số dư và lịch sử biến động.
-    Lưu trữ vào file balance_ledger.txt
+    UTXO Set - Quản lý tập hợp các output chưa được chi tiêu.
+    Đây là nguồn sự thật cho số dư của người dùng.
     """
     
     def __init__(self):
-        super().__init__(filename='balance_ledger')
-
-    def record_change(self, address: str, block_height: int, change: int, final_balance: int) -> bool:
-        """
-        Ghi lại một biến động số dư.
-        Format: Address | Block | Change | Balance
-        """
-        line = f"{address} | {block_height} | {change} | {final_balance}\n"
-        try:
-            with open(self.filepath, 'a', encoding='utf-8') as f:
-                f.write(line)
-            return True
-        except Exception as e:
-            logger.error(f"Error recording balance change: {e}")
-            return False
-
-    def get_history(self, address: str) -> List[Dict[str, Any]]:
-        """
-        Lấy lịch sử biến động số dư của một địa chỉ.
-        """
-        history = []
-        if not self.filepath.exists():
-            return history
-
-        try:
-            with open(self.filepath, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if address in line:
-                        parts = [p.strip() for p in line.split('|')]
-                        if len(parts) == 4 and parts[0] == address:
-                            history.append({
-                                'block': int(parts[1]),
-                                'change': int(parts[2]),
-                                'balance': int(parts[3])
-                            })
-            return history
-        except Exception as e:
-            logger.error(f"Error reading balance history: {e}")
-            return []
-
-    def get_latest_balance(self, address: str) -> int:
-        """
-        Lấy số dư cuối cùng của một địa chỉ.
-        """
-        history = self.get_history(address)
-        if not history:
-            return 0
-        return history[-1]['balance']
+        super().__init__(filename='utxo_set.json')
+        
+    def add_utxo(self, tx_id: str, index: int, amount: int, address: str, script: List[str]):
+        """Thêm một UTXO mới."""
+        utxos = self.read()
+        
+        # Key unique cho UTXO
+        key = f"{tx_id}:{index}"
+        
+        # Thêm vào danh sách (dùng dict để dễ lookup)
+        # Trong file JSON ta sẽ lưu list, nhưng load lên có thể convert sang dict
+        # Ở đây ta giữ thao tác list đơn giản cho BaseDB
+        
+        # Check if exists (should not happen)
+        for u in utxos:
+            if u['key'] == key:
+                logger.warning(f"UTXO {key} already exists!")
+                return
+            
+        utxos.append({
+            'key': key,
+            'tx_id': tx_id,
+            'index': index,
+            'amount': amount,
+            'address': address,
+            'script': script
+        })
+        self.write_all(utxos)
+        
+    def remove_utxo(self, tx_id: str, index: int):
+        """Xóa UTXO khi nó đã được chi tiêu."""
+        utxos = self.read()
+        key = f"{tx_id}:{index}"
+        
+        original_len = len(utxos)
+        utxos = [u for u in utxos if u['key'] != key]
+        
+        if len(utxos) == original_len:
+            logger.warning(f"Attempted to remove non-existent UTXO {key}")
+        
+        self.write_all(utxos)
+        
+    def get_balance(self, address: str) -> int:
+        """Tính tổng số dư từ các UTXO của địa chỉ."""
+        utxos = self.read()
+        balance = 0
+        for u in utxos:
+            if u['address'] == address:
+                balance += int(u['amount'])
+        return balance
+        
+    def get_utxos(self, address: str) -> List[Dict]:
+        """Lấy danh sách UTXO của một địa chỉ."""
+        utxos = self.read()
+        return [u for u in utxos if u['address'] == address]

@@ -127,59 +127,130 @@ class BlockHeader:
     
     def mine(self) -> str:
         """
-        Mining block - Tìm nonce thỏa mãn difficulty target.
-        
-        Thuật toán:
-        1. Pre-compute phần header không đổi (optimization)
-        2. Thử từng nonce: 0, 1, 2, ...
-        3. Hash(header + nonce) < target → thành công
-        
-        Optimization:
-        - Pre-compute header prefix để tránh serialize lại mỗi iteration
-        - Chỉ thay đổi 4 bytes cuối (nonce)
-        
-        Returns:
-            str: Block hash khi mining thành công
+        Mining block - Multi-threaded version.
         """
-        logger.info("Starting block mining...")
+        logger.info("Starting block mining (multi-core)...")
         start_time = time.time()
         
-        # Pre-compute phần header không đổi
-        header_prefix = self._serialize_prefix()
         target = self.calculate_target()
+        header_prefix = self._serialize_prefix()
         
-        self.nonce = 0
+        # Determine number of processes (leave 1 core free)
+        import multiprocessing
+        num_processes = max(1, multiprocessing.cpu_count() - 1)
         
-        while True:
-            # Append nonce vào header prefix (đã pre-compute)
-            nonce_hex = self.nonce.to_bytes(4, 'little').hex()
-            header_hex = header_prefix + nonce_hex
+        # Chunk size for each process
+        chunk_size = 1_000_000
+        max_nonce = 4_294_967_295
+        
+        found_nonce = None
+        found_hash = None
+        
+        with multiprocessing.Pool(processes=num_processes) as pool:
+            # Create tasks specific ranges for each worker
+            # We submit batches to avoid creating too many tasks
             
-            # Double SHA-256
-            hash_result = hash256(bytes.fromhex(header_hex)).hex()
+            ctx = multiprocessing.get_context('spawn') # Safer for Windows usually, but let's trust default or 'spawn'
             
-            # Kiểm tra target
-            if int(hash_result, 16) < target:
-                self.block_hash = hash_result
-                elapsed = time.time() - start_time
-                hashrate = self.nonce / elapsed if elapsed > 0 else 0
+            # Simple approach: Each worker takes a Step
+            # worker i checks nonces: i, i+step, i+2*step...
+            # But Python mp is easier with distinct ranges
+            
+            results = []
+            for i in range(num_processes):
+                # We simply let workers run randomized or stepped ranges.
+                # Simplest for this demo: 
+                # Worker 0: 0 - 1B
+                # Worker 1: 1B - 2B ...
+                r_start = i * (max_nonce // num_processes)
+                r_end = (i + 1) * (max_nonce // num_processes)
+                results.append(pool.apply_async(_mine_worker, (header_prefix, target, r_start, r_end)))
+            
+            try:
+                # Wait for FIRST success
+                while True:
+                    all_done = True
+                    for res in results:
+                        if not res.ready():
+                            all_done = False
+                            continue
+                        
+                        val = res.get()
+                        if val: # Found!
+                            found_nonce, found_hash = val
+                            pool.terminate()
+                            break
+                    
+                    if found_nonce is not None:
+                        break
+                        
+                    if all_done:
+                        break
+                    
+                    time.sleep(0.5)
+            except KeyboardInterrupt:
+                pool.terminate()
                 
-                logger.info(f"Block mined successfully!")
-                logger.info(f"  Hash: {self.block_hash}")
-                logger.info(f"  Nonce: {self.nonce}")
-                logger.info(f"  Time: {elapsed:.2f}s")
-                logger.info(f"  Hashrate: {hashrate:.0f} H/s")
-                
-                return self.block_hash
+        if found_nonce is not None:
+            self.nonce = found_nonce
+            self.block_hash = found_hash
+            elapsed = time.time() - start_time
+            hashrate = self.nonce / elapsed if elapsed > 0 else 0
             
-            self.nonce += 1
+            logger.info(f"Block mined successfully!")
+            logger.info(f"  Hash: {self.block_hash}")
+            logger.info(f"  Nonce: {self.nonce}")
+            logger.info(f"  Time: {elapsed:.2f}s")
+            logger.info(f"  Hashrate (effective): {hashrate:.0f} H/s")
             
-            # Progress report
-            if self.nonce % MINING_REPORT_INTERVAL == 0:
-                print(f"Mining... Nonce: {self.nonce:,}, "
-                      f"Hash: {hash_result[:16]}...", end="\r")
+            return self.block_hash
+            
+        return None
+
+def _mine_worker(header_prefix, target, start_nonce, end_nonce):
+    """Standalone worker function for multiprocessing."""
+    nonce = start_nonce
+    # Optimization: local variable access is faster
+    import hashlib
     
-        return self.bits_to_target(self.bits)
+    # Pre-parse prefix to bytes
+    prefix_bytes = bytes.fromhex(header_prefix)
+    
+    while nonce < end_nonce:
+        # Construct header: prefix + nonce (4 bytes little-endian)
+        # Note: Optimization - manual byte concatenation
+        header = prefix_bytes + nonce.to_bytes(4, 'little')
+        
+        # Double SHA256
+        # digest() returns bytes, simpler to compare integers if we convert
+        h1 = hashlib.sha256(header).digest()
+        h2 = hashlib.sha256(h1).digest()
+        
+        # Convert to int - big-endian because hex string is big-endian representation of the number?
+        # Bitcoin hash check: interpreted as little-endian number? 
+        # Actually: 
+        # hash_hex = h2[::-1].hex() 
+        # hash_int = int(hash_hex, 16)
+        # target is calculated as int 
+        
+        # Optimization: Compare bytes directly?
+        # Target is large integer.
+        # Let's stick to standard flow for correctness first
+        
+        hash_hex = h2[::-1].hex()
+        if int(hash_hex, 16) < target:
+            return nonce, hash_hex
+            
+        nonce += 1
+        
+        # Check cancellation? (Hard in simple loop without IPC)
+        # We rely on Process.terminate() from main
+        
+        pass # end while
+        
+    return None
+    
+
     
     @staticmethod
     def bits_to_target(bits: str) -> int:

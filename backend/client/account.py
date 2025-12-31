@@ -257,6 +257,99 @@ class Account:
     # UTILITY METHODS
     # =========================================================================
     
+    # =========================================================================
+    # STORAGE & ENCRYPTION
+    # =========================================================================
+    
+    def save_to_file(self, filepath: str, password: str = None) -> bool:
+        """
+        Lưu account vào file (có mã hóa nếu cung cấp password).
+        """
+        import json
+        
+        data = {
+            'address': self.address,
+            'public_key': self.public_key.hex() if self.public_key else None
+        }
+        
+        if self.private_key:
+            if password:
+                # Encrypt private key using simple XOR with PBKDF2 derived key
+                salt = os.urandom(16)
+                key = hashlib.pbkdf2_hmac(
+                    'sha256', 
+                    password.encode('utf-8'), 
+                    salt, 
+                    100000,
+                    dklen=32
+                )
+                
+                # XOR
+                encrypted_key = bytes(a ^ b for a, b in zip(self.private_key, key))
+                
+                data['encryption'] = {
+                    'method': 'pbkdf2_xor',
+                    'salt': salt.hex(),
+                    'encrypted_privkey': encrypted_key.hex()
+                }
+            else:
+                # Plain text (Warning: Unsafe)
+                data['private_key'] = self.private_key.hex()
+                
+        try:
+            with open(filepath, 'w') as f:
+                json.dump(data, f, indent=4)
+            return True
+        except Exception as e:
+            logger.error(f"Error saving account: {e}")
+            return False
+
+    @classmethod
+    def load_from_file(cls, filepath: str, password: str = None) -> 'Account':
+        """
+        Load account từ file (cần password nếu đã mã hóa).
+        """
+        import json
+        
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+            
+        account = cls()
+        account.address = data.get('address')
+        if data.get('public_key'):
+            account.public_key = bytes.fromhex(data['public_key'])
+            
+        # Recover private key
+        if 'encryption' in data:
+            if not password:
+                raise ValueError("Password required to decrypt wallet")
+                
+            enc_data = data['encryption']
+            if enc_data['method'] != 'pbkdf2_xor':
+                raise ValueError("Unsupported encryption method")
+                
+            salt = bytes.fromhex(enc_data['salt'])
+            encrypted_key = bytes.fromhex(enc_data['encrypted_privkey'])
+            
+            # Derive key again
+            key = hashlib.pbkdf2_hmac(
+                'sha256', 
+                password.encode('utf-8'), 
+                salt, 
+                100000,
+                dklen=32
+            )
+            
+            # XOR to decrypt
+            account.private_key = bytes(a ^ b for a, b in zip(encrypted_key, key))
+            
+        elif 'private_key' in data:
+            if password:
+                 logger.warning("Password provided but wallet is not encrypted")
+            account.private_key = bytes.fromhex(data['private_key'])
+            
+        return account
+
     def __repr__(self) -> str:
         return f"Account(address={self.address})"
 

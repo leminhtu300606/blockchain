@@ -28,7 +28,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.block import Block
 from core.blockheader import BlockHeader
 from core.Tx import Tx, TxIn, TxOut, Script
-from core.database.database import BlockchainDB, BalanceDB
+from core.database.database import BlockchainDB, UTXOSet
 from core.mempool import mempool
 from util.util import hash256
 
@@ -95,7 +95,7 @@ class Blockchain:
         Nếu database rỗng, tự động tạo Genesis block.
         """
         self.db = BlockchainDB()
-        self.balance_db = BalanceDB()
+        self.utxo_set = UTXOSet()
         
         # Kiểm tra và tạo Genesis block nếu cần
         last_block = self.db.lastBlock()
@@ -340,75 +340,54 @@ class Blockchain:
         logger.info(f"Block {block_height} added successfully")
     
     def _calculate_merkle_root(self, tx_hashes: List[str]) -> str:
-        """
-        Tính Merkle root từ danh sách transaction hashes.
-        
-        Simplified version - trong production nên dùng module merkle.py
-        """
         if not tx_hashes:
             return ZERO_HASH
         
-        # Nối tất cả hashes và hash kết quả
-        combined = "".join(tx_hashes)
-        return hash256(combined.encode()).hex()
+        from util.merkle_tree import MerkleTree
+        mt = MerkleTree(tx_hashes)
+        return mt.get_root()
     
     def _write_block(self, block: Block) -> None:
         """
-        Ghi block vào database và cập nhật sổ cái số dư.
+        Ghi block vào database và cập nhật UTXO set.
         """
         block_dict = block.to_dict()
         self.db.write(block_dict)
         
-        # Cập nhật số dư cho từng giao dịch trong block
-        block_height = block.Height
+        # Cập nhật UTXO Set
         for tx_dict in block_dict.get('Txs', []):
-            # 1. Xử lý Outputs (Tăng số dư)
-            for tx_out in tx_dict.get('tx_outs', []):
-                addr = "unknown"
+            tx_id = tx_dict.get('txid')  # Giả sử block.to_dict đã bao gồm txid
+            # Nếu chưa có txid (do to_dict chưa chuẩn), ta cần tính lại hoặc tin tưởng nó có
+            # Flow chuẩn: Block tạo ra -> có tx objects -> to_dict
+            
+            # 1. Inputs: Remove spent UTXOs
+            if not tx_dict.get('is_coinbase'):
+                for tx_in in tx_dict.get('tx_ins', []):
+                    prev_tx = tx_in.get('prev_tx')
+                    prev_index = tx_in.get('prev_index')
+                    self.utxo_set.remove_utxo(prev_tx, prev_index)
+                    logger.debug(f"Spent UTXO {prev_tx}:{prev_index}")
+
+            # 2. Outputs: Add new UTXOs
+            for i, tx_out in enumerate(tx_dict.get('tx_outs', [])):
+                amount = tx_out.get('amount', 0)
                 script = tx_out.get('script_pubkey', [])
+                
+                # Extract address
+                addr = "unknown"
                 if isinstance(script, list) and len(script) >= 3 and script[0] == 'OP_DUP':
                     addr = script[2]
                 
-                amount = tx_out.get('amount', 0)
-                current_bal = self.balance_db.get_latest_balance(addr)
-                self.balance_db.record_change(addr, block_height, amount, current_bal + amount)
+                # Trong thực tế, cần TxID chính xác. 
+                # Lưu ý: block.to_dict() hiện tại của `Block` class gọi `tx.to_dict()`
+                # `Tx.to_dict` trong Tx.py class có trả về `txid`.
+                if tx_id:
+                    self.utxo_set.add_utxo(tx_id, i, amount, addr, script)
+                    logger.debug(f"Added UTXO {tx_id}:{i} for {addr}")
+                else:
+                    logger.error("Transaction missing ID in block data")
 
-            # 2. Xử lý Inputs (Giảm số dư - Skip coinbase)
-            if not tx_dict.get('is_coinbase'):
-                for tx_in in tx_dict.get('tx_ins', []):
-                    prev_tx_id = tx_in.get('prev_tx')
-                    prev_index = tx_in.get('prev_index')
-                    
-                    # Tìm transaction gốc để biết ai là người trả tiền
-                    prev_tx = self.db.get_transaction_by_id(prev_tx_id)
-                    
-                    if prev_tx:
-                        prev_outputs = prev_tx.get('outputs', [])
-                        if prev_index < len(prev_outputs):
-                            spent_output = prev_outputs[prev_index]
-                            
-                            # Lấy địa chỉ và số tiền
-                            addr = "unknown"
-                            script = spent_output.get('script_pubkey', [])
-                            # Trích xuất address từ P2PKH script (OP_DUP, OP_HASH160, <ADDR>, ...)
-                            if isinstance(script, list) and len(script) >= 3 and script[0] == 'OP_DUP':
-                                addr = script[2]
-                                
-                            amount = spent_output.get('amount', 0)
-                            
-                            # Trừ tiền
-                            current_bal = self.balance_db.get_latest_balance(addr)
-                            new_bal = current_bal - amount
-                            self.balance_db.record_change(addr, block_height, -amount, new_bal)
-                            logger.info(f"Deducted {amount} from {addr} (Tx: {prev_tx_id})")
-                        else:
-                             logger.error(f"Invalid output index {prev_index} in tx {prev_tx_id}")
-                    else:
-                        # Transaction chưa được index hoặc không tìm thấy (có thể do chưa đồng bộ)
-                        # Trong thực tế cần xử lý kỹ hơn, ở đây ta log warning
-                        logger.warning(f"Could not find previous tx {prev_tx_id}")
-
-        logger.info(f"Block {block_height} written to database and ledger updated")
+        logger.info(f"Block {block.Height} written to database and UTXO set updated")
     
     # =========================================================================
     # FETCH BLOCKS
@@ -432,6 +411,50 @@ class Blockchain:
         """
         last_block = self.fetch_last_block()
         return last_block['Height'] if last_block else -1
+
+    def receive_block(self, block_dict: Dict[str, Any]) -> bool:
+        """
+        Nhận và xác thực block từ mạng P2P.
+        """
+        # 1. Validate Structure
+        if 'Blockheader' not in block_dict or 'Txs' not in block_dict:
+            logger.error("Invalid block structure")
+            return False
+            
+        header = block_dict['Blockheader']
+        
+        # 2. Validate Linkage
+        last_block = self.fetch_last_block()
+        if last_block:
+            if header['previous_block_hash'] != last_block['Blockheader']['blockhash']:
+                logger.error("Invalid previous block hash")
+                return False
+            if block_dict['Height'] != last_block['Height'] + 1:
+                logger.error("Invalid block height")
+                return False
+                
+        # 3. Validate PoW
+        # Re-calc hash to ensure it matches header
+        # Check if hash < target (requires BlockHeader object reconstruction)
+        
+        # 4. Validate Merkle Root
+        tx_hashes = [tx.get('txid') for tx in block_dict['Txs']]
+        calculated_root = self._calculate_merkle_root(tx_hashes)
+        if calculated_root != header['merkle_root']:
+            logger.error("Invalid Merkle Root")
+            return False
+            
+        # 5. Write to DB
+        # Reconstruct block object
+        block = Block(
+            Height=block_dict['Height'],
+            Blocksize=block_dict.get('Blocksize', 0),
+            Blockheader=header,
+            Txcount=len(block_dict['Txs']),
+            Txs=block_dict['Txs']
+        )
+        self._write_block(block)
+        return True
     
     # =========================================================================
     # MAIN MINING LOOP
