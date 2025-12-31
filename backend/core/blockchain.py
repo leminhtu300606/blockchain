@@ -376,9 +376,37 @@ class Blockchain:
             # 2. Xử lý Inputs (Giảm số dư - Skip coinbase)
             if not tx_dict.get('is_coinbase'):
                 for tx_in in tx_dict.get('tx_ins', []):
-                    # Trong bản demo đơn giản, chúng ta ghi nhận việc tiêu tiền
-                    # Thực tế cần tìm ai là chủ sở hữu của UTXO cũ.
-                    pass 
+                    prev_tx_id = tx_in.get('prev_tx')
+                    prev_index = tx_in.get('prev_index')
+                    
+                    # Tìm transaction gốc để biết ai là người trả tiền
+                    prev_tx = self.db.get_transaction_by_id(prev_tx_id)
+                    
+                    if prev_tx:
+                        prev_outputs = prev_tx.get('outputs', [])
+                        if prev_index < len(prev_outputs):
+                            spent_output = prev_outputs[prev_index]
+                            
+                            # Lấy địa chỉ và số tiền
+                            addr = "unknown"
+                            script = spent_output.get('script_pubkey', [])
+                            # Trích xuất address từ P2PKH script (OP_DUP, OP_HASH160, <ADDR>, ...)
+                            if isinstance(script, list) and len(script) >= 3 and script[0] == 'OP_DUP':
+                                addr = script[2]
+                                
+                            amount = spent_output.get('amount', 0)
+                            
+                            # Trừ tiền
+                            current_bal = self.balance_db.get_latest_balance(addr)
+                            new_bal = current_bal - amount
+                            self.balance_db.record_change(addr, block_height, -amount, new_bal)
+                            logger.info(f"Deducted {amount} from {addr} (Tx: {prev_tx_id})")
+                        else:
+                             logger.error(f"Invalid output index {prev_index} in tx {prev_tx_id}")
+                    else:
+                        # Transaction chưa được index hoặc không tìm thấy (có thể do chưa đồng bộ)
+                        # Trong thực tế cần xử lý kỹ hơn, ở đây ta log warning
+                        logger.warning(f"Could not find previous tx {prev_tx_id}")
 
         logger.info(f"Block {block_height} written to database and ledger updated")
     

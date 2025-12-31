@@ -69576,5 +69576,79 @@
                 "is_coinbase": true
             }
         ]
+    },
+    {
+        "Height": 1512,
+        "Blocksize": 0,
+        "Blockheader": {
+            "version": 1,
+            "previous_block_hash": "5917387eecc4aa833e43e25135b44f749cb9fc8d7782415ed6bc93bd9f4ae822",
+            "merkle_root": "5c2d6d06a19db4ee250c1ff288eb2fccc07d1e2e04896468ad9cd634a5e0f980",
+            "timestamp": 1767062704,
+            "bits": "20ffffff",
+            "nonce": 0,
+            "blockhash": "609a72fe00b2fd433d68eae9ffde200f846620d036ca93553aa9bc7879c902a4"
+        },
+        "Txcount": 2,
+        "Txs": [
+            {
+                "txid": "ea569af9e1aa42edc855de85264e361a6b270aabf34216fa2ba6a304ad327f4d",
+                "version": 1,
+                "tx_ins": [
+                    {
+                        "prev_tx": "0000000000000000000000000000000000000000000000000000000000000000",
+                        "prev_index": 4294967295,
+                        "script_sig": [
+                            "e8050000",
+                            "11",
+                            "426c6f636b203135313220726577617264"
+                        ],
+                        "sequence": 4294967295
+                    }
+                ],
+                "tx_outs": [
+                    {
+                        "amount": 5000000000,
+                        "script_pubkey": [
+                            "OP_DUP",
+                            "OP_HASH160",
+                            "0000000000000000000000000000000000000000",
+                            "OP_EQUALVERIFY",
+                            "OP_CHECKSIG"
+                        ]
+                    }
+                ],
+                "locktime": 0,
+                "is_coinbase": true
+            },
+            {
+                "txid": "aea67ac3875f3c6e85c29be4f45def0219fd46e8bccd947bde3580a9b819c666",
+                "version": 1,
+                "tx_ins": [
+                    {
+                        "prev_tx": "0000000000000000000000000000000000000000000000000000000000000000",
+                        "prev_index": 0,
+                        "script_sig": [
+                            ""
+                        ],
+                        "sequence": 4294967295
+                    }
+                ],
+                "tx_outs": [
+                    {
+                        "amount": 100,
+                        "script_pubkey": [
+                            "OP_DUP",
+                            "OP_HASH160",
+                            "d245eaf1991e0cc8027bfc6f5f35161149b37155f34b71c09940c40d029de43d",
+                            "OP_EQUALVERIFY",
+                            "OP_CHECKSIG"
+                        ]
+                    }
+                ],
+                "locktime": 0,
+                "is_coinbase": false
+            }
+        ]
     }
 ]
