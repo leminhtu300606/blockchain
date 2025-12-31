@@ -21,7 +21,7 @@ from flask_cors import CORS
 
 from client.account import Account, generate_account
 from core.blockchain import Blockchain
-from core.database.database import BlockchainDB, BalanceDB
+from core.database.database import BlockchainDB, UTXOSet
 from core.mempool import mempool
 from core.Tx import Tx, TxIn, TxOut, Script
 

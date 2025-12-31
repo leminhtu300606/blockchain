@@ -20,7 +20,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'backend'))
 from client.account import Account, generate_account
 from client.sendBTC import UTXO, TxOutput, create_transaction
 from core.blockchain import Blockchain
-from core.database.database import BlockchainDB, BalanceDB
+from core.database.database import BlockchainDB, UTXOSet
 from core.mempool import mempool
 from core.Tx import Tx, TxIn, TxOut, Script
 
@@ -121,19 +121,13 @@ def check_balance():
         pause()
         return
     
-    balance_db = BalanceDB()
-    balance = balance_db.get_latest_balance(address)
+    utxo_set = UTXOSet()
+    balance = utxo_set.get_balance(address)
     
     btc = balance / (10 ** 8)
     print(f"\n💰 Số dư: {balance:,} satoshi ({btc:.8f} BTC)")
     
-    # Hiển thị lịch sử
-    history = balance_db.get_history(address)
-    if history:
-        print(f"\n📜 Lịch sử ({len(history)} bản ghi gần nhất):")
-        for entry in history[-5:]:
-            change_str = f"+{entry['change']}" if entry['change'] > 0 else str(entry['change'])
-            print(f"   Block #{entry['block']}: {change_str} → {entry['balance']:,} sat")
+    print("\n⚠️  Lịch sử giao dịch chi tiết tạm thời bị vô hiệu hóa trong bản nâng cấp UTXO.")
     
     pause()
 
@@ -358,21 +352,8 @@ def view_transaction_history():
         pause()
         return
     
-    balance_db = BalanceDB()
-    history = balance_db.get_history(address)
-    
-    if not history:
-        print(f"\n⚠️  Không tìm thấy lịch sử cho địa chỉ này.")
-        pause()
-        return
-    
-    print(f"\n📜 Lịch sử giao dịch ({len(history)} bản ghi):")
-    print("-" * 50)
-    
-    for entry in history:
-        change = entry['change']
-        change_str = f"+{change:,}" if change > 0 else f"{change:,}"
-        print(f"Block #{entry['block']:>5} | {change_str:>15} sat | Số dư: {entry['balance']:,} sat")
+    print(f"\n⚠️  Tính năng xem lịch sử giao dịch đang được bảo trì để nâng cấp lên UTXO model.")
+    print("Vui lòng kiểm tra số dư hiện tại để xác nhận giao dịch.")
     
     pause()
 
